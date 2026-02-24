@@ -112,6 +112,34 @@ func TestSearchFindsCapture(t *testing.T) {
 	}
 }
 
+func TestSearchAvoidsRepetition(t *testing.T) {
+	// White is up a queen. After Nf3 Nf6 Ng1 Ng8 we're back at a position
+	// that has occurred before. The engine should NOT repeat, since White
+	// is winning and should prefer progress.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+
+	// Play Nf3 Nf6 Ng1 Ng8 to create a repeatable cycle.
+	moves := []board.Move{
+		board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece),
+		board.NewMove(board.G8, board.F6, board.FlagQuiet, board.Knight, board.NoPiece),
+		board.NewMove(board.F3, board.G1, board.FlagQuiet, board.Knight, board.NoPiece),
+		board.NewMove(board.F6, board.G8, board.FlagQuiet, board.Knight, board.NoPiece),
+	}
+	for _, m := range moves {
+		pos.MakeMove(m)
+	}
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+
+	// The engine should not play Nf3 again (which would lead to repetition).
+	nf3 := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+	if bestMove == nf3 {
+		t.Error("engine should avoid Nf3 which leads to repetition; it's winning")
+	}
+}
+
 func TestSearchMateScore(t *testing.T) {
 	pos := &board.Position{}
 	_ = pos.SetFromFEN("6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1")

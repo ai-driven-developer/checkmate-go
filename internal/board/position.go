@@ -314,6 +314,27 @@ func (p *Position) UnmakeMove(m Move) {
 	}
 }
 
+// IsRepetition returns true if the current position has occurred before
+// in the game history. Scans backwards through stateHistory, bounded by
+// the HalfMoveClock (irreversible moves reset repetition possibility).
+// Uses 2-fold detection: a single prior occurrence means the position has
+// appeared at least twice total (once before + once now).
+func (p *Position) IsRepetition() bool {
+	h := p.Hash
+	limit := len(p.stateHistory)
+	start := limit - int(p.HalfMoveClock)
+	if start < 0 {
+		start = 0
+	}
+	// Walk backwards in steps of 2 (same side to move).
+	for i := limit - 2; i >= start; i -= 2 {
+		if p.stateHistory[i].Hash == h {
+			return true
+		}
+	}
+	return false
+}
+
 // Copy returns a deep copy of the position (for concurrent use).
 func (p *Position) Copy() *Position {
 	cp := *p

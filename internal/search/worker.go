@@ -82,6 +82,11 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 		return 0, nil
 	}
 
+	// Repetition detection (2-fold: draw if position seen before).
+	if ply > 0 && w.pos.IsRepetition() {
+		return 0, nil
+	}
+
 	// TT probe.
 	tt := w.engine.tt
 	hash := w.pos.Hash

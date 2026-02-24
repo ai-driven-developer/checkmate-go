@@ -171,6 +171,45 @@ func TestMakeUnmakePromotion(t *testing.T) {
 	}
 }
 
+func TestIsRepetitionDetects(t *testing.T) {
+	p := NewPosition()
+	// Play Nf3 Nf6 Ng1 Ng8 — back to start.
+	moves := []Move{
+		NewMove(G1, F3, FlagQuiet, Knight, NoPiece),
+		NewMove(G8, F6, FlagQuiet, Knight, NoPiece),
+		NewMove(F3, G1, FlagQuiet, Knight, NoPiece),
+		NewMove(F6, G8, FlagQuiet, Knight, NoPiece),
+	}
+	for _, m := range moves {
+		p.MakeMove(m)
+	}
+	// Position is identical to starting position — should detect repetition.
+	if !p.IsRepetition() {
+		t.Error("expected repetition after returning to starting position")
+	}
+}
+
+func TestIsRepetitionNoFalsePositive(t *testing.T) {
+	p := NewPosition()
+	// Play e2e4 — no repetition possible.
+	m := NewMove(E2, E4, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m)
+	if p.IsRepetition() {
+		t.Error("no repetition expected after a single move")
+	}
+}
+
+func TestIsRepetitionResetByCapture(t *testing.T) {
+	// Set up a position, make a capture (resets half-move clock), then
+	// play moves that return to the same position. The capture prevents
+	// looking past the irreversible move.
+	p := &Position{}
+	_ = p.SetFromFEN("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2")
+	if p.IsRepetition() {
+		t.Error("no repetition expected at start of test")
+	}
+}
+
 func TestZobristHashConsistency(t *testing.T) {
 	p := NewPosition()
 
