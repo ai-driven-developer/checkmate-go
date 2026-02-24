@@ -60,6 +60,7 @@ func (h *Handler) printf(format string, a ...interface{}) {
 func (h *Handler) applyOptions() {
 	h.engine.SetMoveOverhead(time.Duration(h.options.MoveOverhead) * time.Millisecond)
 	h.engine.SetThreads(h.options.Threads)
+	h.engine.SetHash(h.options.Hash)
 }
 
 // Run reads and processes UCI commands until "quit".
@@ -355,8 +356,8 @@ func (h *Handler) printInfo(info search.SearchInfo) {
 		wdlStr = fmt.Sprintf(" wdl %d %d %d", w, d, l)
 	}
 
-	h.printf("info depth %d score %s%s nodes %d nps %d time %d pv %s\n",
-		info.Depth, scoreStr, wdlStr, info.Nodes, nps, info.Time.Milliseconds(), pvStr)
+	h.printf("info depth %d score %s%s nodes %d nps %d time %d hashfull %d pv %s\n",
+		info.Depth, scoreStr, wdlStr, info.Nodes, nps, info.Time.Milliseconds(), info.Hashfull, pvStr)
 }
 
 // scoreToWDL converts a centipawn score to Win/Draw/Loss per mille values.

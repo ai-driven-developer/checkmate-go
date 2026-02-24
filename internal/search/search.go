@@ -28,11 +28,12 @@ type SearchLimits struct {
 
 // SearchInfo holds real-time search statistics.
 type SearchInfo struct {
-	Depth int
-	Score int
-	Nodes uint64
-	Time  time.Duration
-	PV    []board.Move
+	Depth    int
+	Score    int
+	Nodes    uint64
+	Time     time.Duration
+	PV       []board.Move
+	Hashfull int
 }
 
 // InfoCallback is called when the search has new info to report.
@@ -49,10 +50,24 @@ type Engine struct {
 	start        time.Time
 	moveOverhead time.Duration
 	threads      int
+	tt           *TransTable
 }
 
 func NewEngine() *Engine {
-	return &Engine{threads: 1}
+	return &Engine{
+		threads: 1,
+		tt:      NewTransTable(64),
+	}
+}
+
+// SetHash resizes the transposition table.
+func (e *Engine) SetHash(sizeMB int) {
+	e.tt = NewTransTable(sizeMB)
+}
+
+// ClearHash zeroes the transposition table.
+func (e *Engine) ClearHash() {
+	e.tt.Clear()
 }
 
 // SetThreads sets the number of search threads.
@@ -81,6 +96,7 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 	e.stopFlag.Store(false)
 	e.start = time.Now()
 	e.deadline = e.computeDeadline()
+	e.tt.NewSearch()
 
 	maxDepth := MaxDepth
 	if limits.Depth > 0 {

@@ -13,12 +13,17 @@ var mvvLva = [7][7]int{
 	{0, 0, 0, 0, 0, 0, 0},       // King victim
 }
 
-// OrderMoves sorts the move list using MVV-LVA for captures.
+// OrderMoves sorts the move list. If hashMove is not NullMove, it gets
+// highest priority. Captures are ordered by MVV-LVA.
 // Uses insertion sort (optimal for ~30-50 moves).
-func OrderMoves(ml *board.MoveList) {
+func OrderMoves(ml *board.MoveList, hashMove board.Move) {
 	var scores [256]int32
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
+		if m == hashMove {
+			scores[i] = 2_000_000
+			continue
+		}
 		if m.IsCapture() {
 			scores[i] = int32(mvvLva[m.CapturedPiece()][m.Piece()]) + 1_000_000
 		}

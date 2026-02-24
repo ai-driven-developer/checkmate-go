@@ -14,7 +14,7 @@ func TestMoveOrderCapturesFirst(t *testing.T) {
 	// Add another quiet move.
 	ml.Add(board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece))
 
-	OrderMoves(&ml)
+	OrderMoves(&ml, board.NullMove)
 
 	// The capture should be first.
 	if !ml.Moves[0].IsCapture() {
@@ -31,7 +31,7 @@ func TestMoveOrderMVVLVA(t *testing.T) {
 	// Knight captures rook (medium priority).
 	ml.Add(board.NewMove(board.C3, board.D5, board.FlagCapture, board.Knight, board.Rook))
 
-	OrderMoves(&ml)
+	OrderMoves(&ml, board.NullMove)
 
 	// PxQ should be first, NxR second, PxP last.
 	if ml.Moves[0].CapturedPiece() != board.Queen {
@@ -42,5 +42,26 @@ func TestMoveOrderMVVLVA(t *testing.T) {
 	}
 	if ml.Moves[2].CapturedPiece() != board.Pawn {
 		t.Error("PxP should be last")
+	}
+}
+
+func TestMoveOrderHashMoveFirst(t *testing.T) {
+	var ml board.MoveList
+	quiet1 := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	capture := board.NewMove(board.D4, board.E5, board.FlagCapture, board.Pawn, board.Queen)
+	quiet2 := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+
+	ml.Add(quiet1)
+	ml.Add(capture)
+	ml.Add(quiet2)
+
+	// quiet2 is the hash move — it should come first despite being quiet.
+	OrderMoves(&ml, quiet2)
+
+	if ml.Moves[0] != quiet2 {
+		t.Errorf("hash move should be first, got %v", ml.Moves[0])
+	}
+	if ml.Moves[1] != capture {
+		t.Errorf("capture should be second, got %v", ml.Moves[1])
 	}
 }

@@ -9,7 +9,7 @@ import (
 
 // worker is a per-thread search context for Lazy SMP.
 type worker struct {
-	engine *Engine        // shared state (nodes, stopFlag, deadline, limits, start)
+	engine *Engine        // shared state (nodes, stopFlag, deadline, limits, start, tt)
 	pos    board.Position // per-worker position copy
 	id     int
 }
@@ -37,11 +37,12 @@ func (w *worker) search(maxDepth int) workerResult {
 		// Only main thread reports info.
 		if w.id == 0 && w.engine.onInfo != nil {
 			w.engine.onInfo(SearchInfo{
-				Depth: depth,
-				Score: score,
-				Nodes: w.engine.nodes.Load(),
-				Time:  time.Since(w.engine.start),
-				PV:    pv,
+				Depth:    depth,
+				Score:    score,
+				Nodes:    w.engine.nodes.Load(),
+				Time:     time.Since(w.engine.start),
+				PV:       pv,
+				Hashfull: w.engine.tt.Hashfull(),
 			})
 		}
 		// Stop if we found a forced mate.
@@ -81,6 +82,31 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 		return 0, nil
 	}
 
+	// TT probe.
+	tt := w.engine.tt
+	hash := w.pos.Hash
+	var hashMove board.Move
+	isPV := beta-alpha > 1
+
+	if hit, ttMove, ttScore, ttDepth, ttBound := tt.Probe(hash); hit {
+		hashMove = ttMove
+		if !isPV && int8(depth) <= ttDepth {
+			score := scoreFromTT(ttScore, ply)
+			switch ttBound {
+			case BoundExact:
+				return score, []board.Move{ttMove}
+			case BoundLower:
+				if score >= beta {
+					return score, []board.Move{ttMove}
+				}
+			case BoundUpper:
+				if score <= alpha {
+					return score, nil
+				}
+			}
+		}
+	}
+
 	var ml board.MoveList
 	movegen.GenerateLegalMoves(&w.pos, &ml)
 
@@ -91,9 +117,13 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 		return 0, nil // stalemate
 	}
 
-	OrderMoves(&ml)
+	OrderMoves(&ml, hashMove)
 
+	origAlpha := alpha
+	bestScore := -Infinity
+	bestMove := board.NullMove
 	var bestPV []board.Move
+
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 		w.pos.MakeMove(m)
@@ -103,6 +133,11 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 
 		if w.shouldStop() && ply > 0 {
 			return 0, nil
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestMove = m
 		}
 
 		if score > alpha {
@@ -115,6 +150,20 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 			}
 		}
 	}
+
+	// TT store.
+	if !w.shouldStop() {
+		var bound Bound
+		if bestScore >= beta {
+			bound = BoundLower
+		} else if bestScore > origAlpha {
+			bound = BoundExact
+		} else {
+			bound = BoundUpper
+		}
+		tt.Store(hash, bestMove, scoreToTT(bestScore, ply), int8(depth), bound)
+	}
+
 	return alpha, bestPV
 }
 
@@ -131,7 +180,7 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
-	OrderMoves(&ml)
+	OrderMoves(&ml, board.NullMove)
 
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
