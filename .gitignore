@@ -1,0 +1,17 @@
+# Binary
+checkmatego
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test and profiling
+*.test
+*.out
+*.prof
