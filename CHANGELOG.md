@@ -18,6 +18,7 @@
 - **Tapered evaluation:** interpolate between middlegame and endgame scores based on remaining non-pawn material (phase 0-24)
 - **King endgame PST:** separate piece-square table for the king in endgames, rewarding centralization
 
+
 ## 1.1.0
 
 **Estimated Elo: 1443** (+14 over 1.0.0)

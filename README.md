@@ -12,7 +12,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
 - **Move ordering:** hash move, MVV-LVA for captures, killer moves, history heuristic, promotion bonus
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
-- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, piece-square tables, mobility
+- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, piece-square tables, mobility, passed pawn bonus
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
@@ -89,7 +89,7 @@ The test suite includes 80+ tests covering:
 
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
 - **movegen:** legal move generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
-- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization
+- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring
 - **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table
 - **uci:** all protocol commands and option parsing
 
@@ -114,7 +114,7 @@ cmd/checkmatego/       Entry point
 internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing
   movegen/             Legal move generation, magic bitboards, perft
-  eval/                Tapered evaluation (material + PST + mobility, MG/EG interpolation)
+  eval/                Tapered evaluation (material + PST + mobility + passed pawns, MG/EG interpolation)
   search/              PVS, quiescence, TT, move ordering, killer moves, history heuristic, LMR, null-move pruning, futility pruning, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```
