@@ -28,11 +28,51 @@ func (w *worker) search(maxDepth int) workerResult {
 
 	w.history = [2][64][64]int32{}
 
+	prevScore := 0
+
 	for depth := 1; depth <= maxDepth; depth++ {
-		score, pv := w.negamax(depth, -Infinity, Infinity, 0, true)
+		alpha, beta := -Infinity, Infinity
+
+		// Aspiration windows: use a narrow window around previous score.
+		delta := 25
+		if depth >= 4 {
+			alpha = prevScore - delta
+			beta = prevScore + delta
+		}
+
+		var score int
+		var pv []board.Move
+
+		for {
+			score, pv = w.negamax(depth, alpha, beta, 0, true)
+			if w.shouldStop() && depth > 1 {
+				break
+			}
+			if score <= alpha {
+				// Fail low: widen lower bound.
+				alpha -= delta
+				if alpha < -Infinity {
+					alpha = -Infinity
+				}
+				delta *= 2
+			} else if score >= beta {
+				// Fail high: widen upper bound.
+				beta += delta
+				if beta > Infinity {
+					beta = Infinity
+				}
+				delta *= 2
+			} else {
+				break
+			}
+		}
+
 		if w.shouldStop() && depth > 1 {
 			break
 		}
+
+		prevScore = score
+
 		if len(pv) > 0 {
 			result.move = pv[0]
 			result.score = score
