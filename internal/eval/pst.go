@@ -72,7 +72,20 @@ var kingMiddlegamePST = [64]int{
 	-30, -40, -40, -50, -50, -40, -40, -30,
 }
 
-var pstTable = [7]*[64]int{
+var kingEndgamePST = [64]int{
+	-50, -30, -30, -30, -30, -30, -30, -50,
+	-30, -30, 0, 0, 0, 0, -30, -30,
+	-30, -10, 20, 30, 30, 20, -10, -30,
+	-30, -10, 30, 40, 40, 30, -10, -30,
+	-30, -10, 30, 40, 40, 30, -10, -30,
+	-30, -10, 20, 30, 30, 20, -10, -30,
+	-30, -20, -10, 0, 0, -10, -20, -30,
+	-50, -40, -30, -20, -20, -30, -40, -50,
+}
+
+// pstMG and pstEG hold middlegame and endgame PST tables.
+// All pieces except the king share the same tables in both phases.
+var pstMG = [7]*[64]int{
 	nil,                 // NoPiece
 	&pawnPST,            // Pawn
 	&knightPST,          // Knight
@@ -82,31 +95,47 @@ var pstTable = [7]*[64]int{
 	&kingMiddlegamePST,  // King
 }
 
+var pstEG = [7]*[64]int{
+	nil,              // NoPiece
+	&pawnPST,         // Pawn
+	&knightPST,       // Knight
+	&bishopPST,       // Bishop
+	&rookPST,         // Rook
+	&queenPST,        // Queen
+	&kingEndgamePST,  // King
+}
+
+// pstTable kept as alias for backward compatibility.
+var pstTable = pstMG
+
 // MirrorSquare flips the rank for Black PST lookups.
 func MirrorSquare(sq board.Square) board.Square {
 	return sq ^ 56
 }
 
-// pstBalance computes the PST score from White's perspective.
-func pstBalance(pos *board.Position) int {
-	score := 0
+// pstBalanceTapered computes separate middlegame and endgame PST scores
+// from White's perspective.
+func pstBalanceTapered(pos *board.Position) (mg, eg int) {
 	for piece := board.Pawn; piece <= board.King; piece++ {
-		table := pstTable[piece]
-		if table == nil {
+		mgTable := pstMG[piece]
+		egTable := pstEG[piece]
+		if mgTable == nil {
 			continue
 		}
-		// White pieces — use table directly.
+		// White pieces — use tables directly.
 		bb := pos.ColorPieces(board.White, piece)
 		for bb != 0 {
 			sq := bb.PopLSB()
-			score += table[sq]
+			mg += mgTable[sq]
+			eg += egTable[sq]
 		}
 		// Black pieces — mirror square.
 		bb = pos.ColorPieces(board.Black, piece)
 		for bb != 0 {
 			sq := bb.PopLSB()
-			score -= table[MirrorSquare(sq)]
+			mg -= mgTable[MirrorSquare(sq)]
+			eg -= egTable[MirrorSquare(sq)]
 		}
 	}
-	return score
+	return mg, eg
 }

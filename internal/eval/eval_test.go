@@ -48,6 +48,59 @@ func TestEvalMaterialBalance(t *testing.T) {
 	}
 }
 
+func TestGamePhaseStartPosition(t *testing.T) {
+	pos := board.NewPosition()
+	phase := gamePhase(pos)
+	if phase != totalPhase {
+		t.Errorf("start position should have full phase (%d), got %d", totalPhase, phase)
+	}
+}
+
+func TestGamePhaseEndgame(t *testing.T) {
+	// Kings and pawns only — phase should be 0.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1")
+	phase := gamePhase(pos)
+	if phase != 0 {
+		t.Errorf("K+P endgame should have phase 0, got %d", phase)
+	}
+}
+
+func TestTaperedEvalKingCentralizesInEndgame(t *testing.T) {
+	// In a K+P endgame, a centralized king should be valued higher than
+	// a king on the back rank, because the endgame king PST rewards center.
+	posCentered := &board.Position{}
+	_ = posCentered.SetFromFEN("4k3/8/8/8/4K3/8/8/8 w - - 0 1")
+	scoreCentered := Evaluate(posCentered)
+
+	posEdge := &board.Position{}
+	_ = posEdge.SetFromFEN("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+	scoreEdge := Evaluate(posEdge)
+
+	if scoreCentered <= scoreEdge {
+		t.Errorf("centralized king should score better in endgame: center=%d, edge=%d",
+			scoreCentered, scoreEdge)
+	}
+}
+
+func TestTaperedEvalMiddlegamePrefersKingSafety(t *testing.T) {
+	// In a full middlegame with all pieces, king safety (back rank)
+	// should be preferred over centralizing.
+	posBack := &board.Position{}
+	_ = posBack.SetFromFEN("rnbq1bnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+	scoreBack := Evaluate(posBack)
+
+	// Same material but white king on e4 (very exposed).
+	posExposed := &board.Position{}
+	_ = posExposed.SetFromFEN("rnbq1bnr/pppppppp/8/8/4K3/8/PPPPPPPP/RNBQ1BNR w kq - 0 1")
+	scoreExposed := Evaluate(posExposed)
+
+	if scoreBack <= scoreExposed {
+		t.Errorf("middlegame king on back rank should score better: back=%d, exposed=%d",
+			scoreBack, scoreExposed)
+	}
+}
+
 func TestPSTMirror(t *testing.T) {
 	if MirrorSquare(board.A1) != board.A8 {
 		t.Errorf("mirror A1 should be A8, got %s", MirrorSquare(board.A1))

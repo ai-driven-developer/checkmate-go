@@ -5,10 +5,43 @@ import (
 	"checkmatego/internal/movegen"
 )
 
+// Phase weights for non-pawn pieces.
+const (
+	knightPhase = 1
+	bishopPhase = 1
+	rookPhase   = 2
+	queenPhase  = 4
+	totalPhase  = 4*knightPhase + 4*bishopPhase + 4*rookPhase + 2*queenPhase // 24
+)
+
+// gamePhase returns a value from 0 (endgame) to totalPhase (opening).
+func gamePhase(pos *board.Position) int {
+	phase := 0
+	phase += (pos.ColorPieces(board.White, board.Knight).Count() +
+		pos.ColorPieces(board.Black, board.Knight).Count()) * knightPhase
+	phase += (pos.ColorPieces(board.White, board.Bishop).Count() +
+		pos.ColorPieces(board.Black, board.Bishop).Count()) * bishopPhase
+	phase += (pos.ColorPieces(board.White, board.Rook).Count() +
+		pos.ColorPieces(board.Black, board.Rook).Count()) * rookPhase
+	phase += (pos.ColorPieces(board.White, board.Queen).Count() +
+		pos.ColorPieces(board.Black, board.Queen).Count()) * queenPhase
+	return phase
+}
+
 // Evaluate returns a score in centipawns from the perspective of the side to move.
-// Positive = good for side to move.
+// Positive = good for side to move. Uses tapered evaluation to interpolate
+// between middlegame and endgame scores based on remaining material.
 func Evaluate(pos *board.Position) int {
-	score := materialBalance(pos) + pstBalance(pos) + mobilityScore(pos)
+	mat := materialBalance(pos)
+	mob := mobilityScore(pos)
+	mgPST, egPST := pstBalanceTapered(pos)
+
+	phase := gamePhase(pos)
+	// Tapered score: interpolate between MG and EG.
+	mg := mat + mgPST + mob
+	eg := mat + egPST + mob
+	score := (mg*phase + eg*(totalPhase-phase)) / totalPhase
+
 	if pos.SideToMove == board.Black {
 		score = -score
 	}
