@@ -190,6 +190,59 @@ func TestHistoryHeuristicOrdering(t *testing.T) {
 	}
 }
 
+func TestPVSCorrectness(t *testing.T) {
+	// PVS must find the same best moves as a plain alpha-beta would.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			// Depth 6 exercises PVS: first move full window, rest zero-window.
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestPVSNodeReduction(t *testing.T) {
+	// PVS should not search more nodes than a reasonable upper bound.
+	// This is a sanity check that zero-window searches are happening.
+	pos := board.NewPosition()
+
+	engine := NewEngine()
+	engine.Search(pos, SearchLimits{Depth: 7})
+	nodes := engine.nodes.Load()
+
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+	// With PVS + LMR + NMP + futility the starting position at depth 7
+	// should stay well under 1M nodes.
+	if nodes > 1_000_000 {
+		t.Errorf("PVS search used %d nodes at depth 7, expected fewer", nodes)
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.

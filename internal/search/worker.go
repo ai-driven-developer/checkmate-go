@@ -210,35 +210,43 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		var score int
 		var childPV []board.Move
 
-		// Late Move Reduction: reduce depth for quiet late moves.
-		reduction := 0
-		if i >= 3 && depth >= 3 && !inCheck && !m.IsCapture() && !m.IsPromotion() {
-			mi := i
-			if mi > 63 {
-				mi = 63
+		if i == 0 {
+			// First move: search with full window.
+			score, childPV = w.negamax(depth-1, -beta, -alpha, ply+1, true)
+			score = -score
+		} else {
+			// Late Move Reduction: reduce depth for quiet late moves.
+			reduction := 0
+			if i >= 3 && depth >= 3 && !inCheck && !m.IsCapture() && !m.IsPromotion() {
+				mi := i
+				if mi > 63 {
+					mi = 63
+				}
+				reduction = lmrReductions[depth][mi]
+				if reduction < 1 {
+					reduction = 1
+				}
+				// Don't reduce into negative depth.
+				if reduction > depth-1 {
+					reduction = depth - 1
+				}
 			}
-			reduction = lmrReductions[depth][mi]
-			if reduction < 1 {
-				reduction = 1
-			}
-			// Don't reduce into negative depth.
-			if reduction > depth-1 {
-				reduction = depth - 1
-			}
-		}
 
-		if reduction > 0 {
-			// Reduced-depth search.
+			// PVS: zero-window search (possibly with LMR reduction).
 			score, _ = w.negamax(depth-1-reduction, -alpha-1, -alpha, ply+1, true)
 			score = -score
-			// Re-search at full depth if the reduced search beats alpha.
-			if score > alpha {
+
+			// Re-search at full depth if reduced search beats alpha.
+			if score > alpha && reduction > 0 {
+				score, _ = w.negamax(depth-1, -alpha-1, -alpha, ply+1, true)
+				score = -score
+			}
+
+			// Full window re-search if zero-window search found a better move.
+			if score > alpha && score < beta {
 				score, childPV = w.negamax(depth-1, -beta, -alpha, ply+1, true)
 				score = -score
 			}
-		} else {
-			score, childPV = w.negamax(depth-1, -beta, -alpha, ply+1, true)
-			score = -score
 		}
 
 		w.pos.UnmakeMove(m)
