@@ -14,7 +14,7 @@ func TestMoveOrderCapturesFirst(t *testing.T) {
 	// Add another quiet move.
 	ml.Add(board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece))
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{})
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, nil, 0)
 
 	// The capture should be first.
 	if !ml.Moves[0].IsCapture() {
@@ -31,7 +31,7 @@ func TestMoveOrderMVVLVA(t *testing.T) {
 	// Knight captures rook (medium priority).
 	ml.Add(board.NewMove(board.C3, board.D5, board.FlagCapture, board.Knight, board.Rook))
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{})
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, nil, 0)
 
 	// PxQ should be first, NxR second, PxP last.
 	if ml.Moves[0].CapturedPiece() != board.Queen {
@@ -56,7 +56,7 @@ func TestMoveOrderHashMoveFirst(t *testing.T) {
 	ml.Add(quiet2)
 
 	// quiet2 is the hash move — it should come first despite being quiet.
-	OrderMoves(&ml, quiet2, [2]board.Move{})
+	OrderMoves(&ml, quiet2, [2]board.Move{}, nil, 0)
 
 	if ml.Moves[0] != quiet2 {
 		t.Errorf("hash move should be first, got %v", ml.Moves[0])
@@ -80,7 +80,7 @@ func TestMoveOrderKillerMovePriority(t *testing.T) {
 
 	// quiet2 is a killer move — should come after captures but before other quiets.
 	killers := [2]board.Move{quiet2, board.NullMove}
-	OrderMoves(&ml, board.NullMove, killers)
+	OrderMoves(&ml, board.NullMove, killers, nil, 0)
 
 	if ml.Moves[0] != capture {
 		t.Errorf("capture should be first, got %v", ml.Moves[0])

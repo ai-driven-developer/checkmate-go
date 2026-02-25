@@ -13,6 +13,7 @@ type worker struct {
 	pos     board.Position // per-worker position copy
 	id      int
 	killers [MaxDepth][2]board.Move // killer moves per ply
+	history [2][64][64]int32        // history heuristic [color][from][to]
 }
 
 // workerResult holds the outcome of a worker's search.
@@ -24,6 +25,8 @@ type workerResult struct {
 
 func (w *worker) search(maxDepth int) workerResult {
 	result := workerResult{move: board.NullMove}
+
+	w.history = [2][64][64]int32{}
 
 	for depth := 1; depth <= maxDepth; depth++ {
 		score, pv := w.negamax(depth, -Infinity, Infinity, 0, true)
@@ -147,7 +150,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		return 0, nil // stalemate
 	}
 
-	OrderMoves(&ml, hashMove, w.killers[ply])
+	OrderMoves(&ml, hashMove, w.killers[ply], &w.history, w.pos.SideToMove)
 
 	origAlpha := alpha
 	bestScore := -Infinity
@@ -217,6 +220,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 			if alpha >= beta {
 				if !m.IsCapture() {
 					w.storeKiller(m, ply)
+					w.history[w.pos.SideToMove][m.From()][m.To()] += int32(depth * depth)
 				}
 				break
 			}
@@ -260,7 +264,7 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
-	OrderMoves(&ml, board.NullMove, [2]board.Move{})
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, nil, 0)
 
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
