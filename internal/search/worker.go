@@ -153,9 +153,17 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		// Late Move Reduction: reduce depth for quiet late moves.
 		reduction := 0
 		if i >= 3 && depth >= 3 && !inCheck && !m.IsCapture() && !m.IsPromotion() {
-			reduction = lmrReductions[depth][i]
+			mi := i
+			if mi > 63 {
+				mi = 63
+			}
+			reduction = lmrReductions[depth][mi]
 			if reduction < 1 {
 				reduction = 1
+			}
+			// Don't reduce into negative depth.
+			if reduction > depth-1 {
+				reduction = depth - 1
 			}
 		}
 
