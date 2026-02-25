@@ -18,7 +18,7 @@ import (
 const (
 	EngineName   = "CheckmateGo"
 	EngineAuthor = "ai-driven-developer"
-	Version      = "1.1.0"
+	Version      = "1.2.0"
 )
 
 // Handler manages the UCI protocol.

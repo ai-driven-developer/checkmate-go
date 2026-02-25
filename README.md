@@ -24,6 +24,7 @@ Approximate Elo ratings estimated by playing against Stockfish at various skill 
 |---------|------|
 | 1.0.0   | 1429 |
 | 1.1.0   | 1443 |
+| 1.2.0   | 1592 |
 
 ## Building
 
@@ -47,7 +48,7 @@ Example session:
 
 ```
 uci
-id name CheckmateGo 1.1.0
+id name CheckmateGo 1.2.0
 id author ai-driven-developer
 option name Hash type spin default 64 min 1 max 4096
 option name Threads type spin default 1 min 1 max 128
