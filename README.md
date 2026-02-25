@@ -16,6 +16,15 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
+## Estimated Rating
+
+Approximate Elo ratings estimated by playing against Stockfish at various skill levels:
+
+| Version | Elo  |
+|---------|------|
+| 1.0.0   | 1429 |
+| 1.1.0   | 1443 |
+
 ## Building
 
 Requires Go 1.22 or later.
