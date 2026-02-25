@@ -243,6 +243,29 @@ func TestPVSNodeReduction(t *testing.T) {
 	}
 }
 
+func TestCheckExtensionFindsDeeperMate(t *testing.T) {
+	// Mate in 2 via checks: 1. Rd7+ Ka8 2. Rg8#
+	// Without check extensions depth 2 cannot see the mate (quiesce misses
+	// the non-capture Rg8#). With check extensions Rd7+ extends by 1 ply,
+	// making the mate visible even at depth 2.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("8/1k4R1/8/1K6/8/8/8/3R4 w - - 0 1")
+
+	engine := NewEngine()
+	var mateScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		mateScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	if mateScore < MateScore-MaxDepth {
+		t.Errorf("expected mate score with check extension, got %d", mateScore)
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.

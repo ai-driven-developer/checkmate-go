@@ -7,7 +7,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
-- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, futility pruning, late move reductions, and quiescence search
+- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, futility pruning, late move reductions, check extensions, and quiescence search
 - **Transposition table:** lockless hash table with depth-preferred replacement and generation aging
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
 - **Move ordering:** hash move, MVV-LVA for captures, killer moves, history heuristic, promotion bonus
@@ -89,7 +89,7 @@ The test suite includes 80+ tests covering:
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
 - **movegen:** legal move generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, multi-threaded search, repetition avoidance, transposition table
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table
 - **uci:** all protocol commands and option parsing
 
 ## Benchmarks
@@ -114,6 +114,6 @@ internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing
   movegen/             Legal move generation, magic bitboards, perft
   eval/                Static evaluation (material + PST + mobility)
-  search/              PVS, quiescence, TT, move ordering, killer moves, history heuristic, LMR, null-move pruning, futility pruning, aspiration windows, time control, Lazy SMP
+  search/              PVS, quiescence, TT, move ordering, killer moves, history heuristic, LMR, null-move pruning, futility pruning, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```
