@@ -146,8 +146,33 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 		w.pos.MakeMove(m)
-		score, childPV := w.negamax(depth-1, -beta, -alpha, ply+1, true)
-		score = -score
+
+		var score int
+		var childPV []board.Move
+
+		// Late Move Reduction: reduce depth for quiet late moves.
+		reduction := 0
+		if i >= 3 && depth >= 3 && !inCheck && !m.IsCapture() && !m.IsPromotion() {
+			reduction = lmrReductions[depth][i]
+			if reduction < 1 {
+				reduction = 1
+			}
+		}
+
+		if reduction > 0 {
+			// Reduced-depth search.
+			score, _ = w.negamax(depth-1-reduction, -alpha-1, -alpha, ply+1, true)
+			score = -score
+			// Re-search at full depth if the reduced search beats alpha.
+			if score > alpha {
+				score, childPV = w.negamax(depth-1, -beta, -alpha, ply+1, true)
+				score = -score
+			}
+		} else {
+			score, childPV = w.negamax(depth-1, -beta, -alpha, ply+1, true)
+			score = -score
+		}
+
 		w.pos.UnmakeMove(m)
 
 		if w.shouldStop() && ply > 0 {
