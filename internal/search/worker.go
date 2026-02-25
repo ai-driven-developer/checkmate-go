@@ -126,6 +126,17 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		}
 	}
 
+	// Futility pruning: at shallow depths, if static eval + margin is far
+	// below alpha, quiet moves are unlikely to raise it, so we can skip them.
+	futile := false
+	if !isPV && !inCheck && depth <= 2 {
+		staticEval := eval.Evaluate(&w.pos)
+		margin := depth * 150 // 150 cp per depth ply
+		if staticEval+margin <= alpha {
+			futile = true
+		}
+	}
+
 	var ml board.MoveList
 	movegen.GenerateLegalMoves(&w.pos, &ml)
 
@@ -145,6 +156,12 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
+
+		// Futility pruning: skip quiet moves that are unlikely to raise alpha.
+		if futile && bestScore > -MateScore+MaxDepth && !m.IsCapture() && !m.IsPromotion() {
+			continue
+		}
+
 		w.pos.MakeMove(m)
 
 		var score int
