@@ -8,8 +8,10 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
 - **Search:** iterative deepening with alpha-beta pruning and quiescence search
+- **Transposition table:** lockless hash table with depth-preferred replacement and generation aging
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
-- **Move ordering:** MVV-LVA for captures, promotion bonus
+- **Move ordering:** hash move, MVV-LVA for captures, killer moves, promotion bonus
+- **Draw detection:** repetition detection (2-fold) and 50-move rule
 - **Evaluation:** material balance + piece-square tables + mobility
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
@@ -78,7 +80,7 @@ The test suite includes 80+ tests covering:
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
 - **movegen:** legal move generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, repetition avoidance, transposition table
 - **uci:** all protocol commands and option parsing
 
 ## Benchmarks
@@ -103,6 +105,6 @@ internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing
   movegen/             Legal move generation, magic bitboards, perft
   eval/                Static evaluation (material + PST + mobility)
-  search/              Alpha-beta search, quiescence, time control, Lazy SMP
+  search/              Alpha-beta search, quiescence, TT, killer moves, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```

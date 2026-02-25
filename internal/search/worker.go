@@ -9,9 +9,10 @@ import (
 
 // worker is a per-thread search context for Lazy SMP.
 type worker struct {
-	engine *Engine        // shared state (nodes, stopFlag, deadline, limits, start, tt)
-	pos    board.Position // per-worker position copy
-	id     int
+	engine  *Engine        // shared state (nodes, stopFlag, deadline, limits, start, tt)
+	pos     board.Position // per-worker position copy
+	id      int
+	killers [MaxDepth][2]board.Move // killer moves per ply
 }
 
 // workerResult holds the outcome of a worker's search.
@@ -122,7 +123,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 		return 0, nil // stalemate
 	}
 
-	OrderMoves(&ml, hashMove)
+	OrderMoves(&ml, hashMove, w.killers[ply])
 
 	origAlpha := alpha
 	bestScore := -Infinity
@@ -151,6 +152,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 			bestPV[0] = m
 			copy(bestPV[1:], childPV)
 			if alpha >= beta {
+				if !m.IsCapture() {
+					w.storeKiller(m, ply)
+				}
 				break
 			}
 		}
@@ -172,6 +176,14 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 	return alpha, bestPV
 }
 
+// storeKiller saves a quiet move that caused a beta cutoff.
+func (w *worker) storeKiller(m board.Move, ply int) {
+	if m != w.killers[ply][0] {
+		w.killers[ply][1] = w.killers[ply][0]
+		w.killers[ply][0] = m
+	}
+}
+
 func (w *worker) quiesce(alpha, beta, ply int) int {
 	w.engine.nodes.Add(1)
 
@@ -185,7 +197,7 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
-	OrderMoves(&ml, board.NullMove)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{})
 
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
