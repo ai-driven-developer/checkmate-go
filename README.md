@@ -38,8 +38,8 @@ Example session:
 
 ```
 uci
-id name CheckmateGo 1.0.0
-id author CheckmateGo Authors
+id name CheckmateGo 1.1.0
+id author ai-driven-developer
 option name Hash type spin default 64 min 1 max 4096
 option name Threads type spin default 1 min 1 max 128
 option name Move Overhead type spin default 10 min 0 max 5000
