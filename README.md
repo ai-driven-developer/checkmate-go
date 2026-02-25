@@ -85,13 +85,13 @@ quit
 make test
 ```
 
-The test suite includes 80+ tests covering:
+The test suite includes 165+ tests covering:
 
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
-- **movegen:** legal move generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
+- **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table
-- **uci:** all protocol commands and option parsing
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table, time control allocation
+- **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
 ## Benchmarks
 
