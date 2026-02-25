@@ -7,7 +7,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
-- **Search:** iterative deepening with alpha-beta pruning and quiescence search
+- **Search:** iterative deepening with alpha-beta pruning, null-move pruning, and quiescence search
 - **Transposition table:** lockless hash table with depth-preferred replacement and generation aging
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
 - **Move ordering:** hash move, MVV-LVA for captures, killer moves, promotion bonus

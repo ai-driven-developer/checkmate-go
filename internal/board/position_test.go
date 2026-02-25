@@ -210,6 +210,54 @@ func TestIsRepetitionResetByCapture(t *testing.T) {
 	}
 }
 
+func TestMakeUnmakeNullMove(t *testing.T) {
+	p := NewPosition()
+	origHash := p.Hash
+	origSide := p.SideToMove
+
+	// Set up en passant so we can verify it resets.
+	m := NewMove(E2, E4, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m)
+	if p.EnPassant != E3 {
+		t.Fatalf("expected en passant on E3, got %s", p.EnPassant)
+	}
+	hashBefore := p.Hash
+	sideBefore := p.SideToMove
+
+	p.MakeNullMove()
+
+	// Side to move should flip.
+	if p.SideToMove != sideBefore.Other() {
+		t.Error("side to move should flip after null move")
+	}
+	// En passant should reset.
+	if p.EnPassant != NoSquare {
+		t.Errorf("en passant should be NoSquare after null move, got %s", p.EnPassant)
+	}
+
+	p.UnmakeNullMove()
+
+	// Everything should be restored.
+	if p.Hash != hashBefore {
+		t.Error("hash not restored after unmake null move")
+	}
+	if p.SideToMove != sideBefore {
+		t.Error("side to move not restored after unmake null move")
+	}
+	if p.EnPassant != E3 {
+		t.Errorf("en passant not restored after unmake null move, got %s", p.EnPassant)
+	}
+
+	// Unmake the original e2e4 to verify full restoration.
+	p.UnmakeMove(m)
+	if p.Hash != origHash {
+		t.Error("hash not restored after full unmake")
+	}
+	if p.SideToMove != origSide {
+		t.Error("side to move not restored after full unmake")
+	}
+}
+
 func TestZobristHashConsistency(t *testing.T) {
 	p := NewPosition()
 

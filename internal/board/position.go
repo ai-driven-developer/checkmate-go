@@ -314,6 +314,35 @@ func (p *Position) UnmakeMove(m Move) {
 	}
 }
 
+// MakeNullMove passes the turn without making a move (for null-move pruning).
+func (p *Position) MakeNullMove() {
+	p.stateHistory = append(p.stateHistory, stateInfo{
+		Castling:      p.Castling,
+		EnPassant:     p.EnPassant,
+		HalfMoveClock: p.HalfMoveClock,
+		CapturedPiece: NoPiece,
+		Hash:          p.Hash,
+	})
+	p.Hash ^= ZobristEnPassant[p.EnPassant]
+	p.EnPassant = NoSquare
+	p.Hash ^= ZobristEnPassant[NoSquare]
+	p.SideToMove = p.SideToMove.Other()
+	p.Hash ^= ZobristSideToMove
+	p.HalfMoveClock++
+}
+
+// UnmakeNullMove restores the position to before the last MakeNullMove.
+func (p *Position) UnmakeNullMove() {
+	idx := len(p.stateHistory) - 1
+	state := p.stateHistory[idx]
+	p.stateHistory = p.stateHistory[:idx]
+	p.SideToMove = p.SideToMove.Other()
+	p.Castling = state.Castling
+	p.EnPassant = state.EnPassant
+	p.HalfMoveClock = state.HalfMoveClock
+	p.Hash = state.Hash
+}
+
 // IsRepetition returns true if the current position has occurred before
 // in the game history. Scans backwards through stateHistory, bounded by
 // the HalfMoveClock (irreversible moves reset repetition possibility).

@@ -26,7 +26,7 @@ func (w *worker) search(maxDepth int) workerResult {
 	result := workerResult{move: board.NullMove}
 
 	for depth := 1; depth <= maxDepth; depth++ {
-		score, pv := w.negamax(depth, -Infinity, Infinity, 0)
+		score, pv := w.negamax(depth, -Infinity, Infinity, 0, true)
 		if w.shouldStop() && depth > 1 {
 			break
 		}
@@ -64,7 +64,7 @@ func (w *worker) shouldStop() bool {
 	return false
 }
 
-func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
+func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []board.Move) {
 	// Check time every 4096 nodes.
 	if w.engine.nodes.Load()&4095 == 0 && ply > 0 {
 		if w.shouldStop() {
@@ -113,11 +113,24 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 		}
 	}
 
+	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
+
+	// Null-move pruning.
+	if nullAllowed && !isPV && !inCheck && depth > 3 {
+		w.pos.MakeNullMove()
+		nullScore, _ := w.negamax(depth-1-3, -beta, -beta+1, ply+1, false)
+		nullScore = -nullScore
+		w.pos.UnmakeNullMove()
+		if nullScore >= beta {
+			return beta, nil
+		}
+	}
+
 	var ml board.MoveList
 	movegen.GenerateLegalMoves(&w.pos, &ml)
 
 	if ml.Count == 0 {
-		if movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other()) {
+		if inCheck {
 			return -MateScore + ply, nil // checkmate
 		}
 		return 0, nil // stalemate
@@ -133,7 +146,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int) (int, []board.Move) {
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 		w.pos.MakeMove(m)
-		score, childPV := w.negamax(depth-1, -beta, -alpha, ply+1)
+		score, childPV := w.negamax(depth-1, -beta, -alpha, ply+1, true)
 		score = -score
 		w.pos.UnmakeMove(m)
 
