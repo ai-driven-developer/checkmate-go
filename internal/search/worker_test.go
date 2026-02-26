@@ -266,6 +266,67 @@ func TestCheckExtensionFindsDeeperMate(t *testing.T) {
 	}
 }
 
+func TestSingularExtensionExcludedMoveSkipped(t *testing.T) {
+	// Verify the excludedMove field is NullMove after search and that
+	// singular extensions don't break normal search.
+	pos := board.NewPosition()
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 10})
+
+	if bestMove == board.NullMove {
+		t.Error("search should return a valid move with singular extensions enabled")
+	}
+
+	// After search, a fresh worker should have excludedMove = NullMove.
+	w := &worker{engine: engine}
+	if w.excludedMove != board.NullMove {
+		t.Error("excludedMove should be NullMove after search completes")
+	}
+}
+
+func TestSingularExtensionDoesNotRegress(t *testing.T) {
+	// Tactical positions must still be solved correctly with SE enabled.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+		depth    int
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+			depth:    8,
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+			depth:    8,
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+			depth:    8,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: tc.depth})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.

@@ -9,11 +9,12 @@ import (
 
 // worker is a per-thread search context for Lazy SMP.
 type worker struct {
-	engine  *Engine        // shared state (nodes, stopFlag, deadline, limits, start, tt)
-	pos     board.Position // per-worker position copy
-	id      int
-	killers [MaxDepth][2]board.Move // killer moves per ply
-	history [2][64][64]int32        // history heuristic [color][from][to]
+	engine       *Engine        // shared state (nodes, stopFlag, deadline, limits, start, tt)
+	pos          board.Position // per-worker position copy
+	id           int
+	killers      [MaxDepth][2]board.Move // killer moves per ply
+	history      [2][64][64]int32        // history heuristic [color][from][to]
+	excludedMove board.Move              // move to skip during singular extension search
 }
 
 // workerResult holds the outcome of a worker's search.
@@ -134,12 +135,24 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 	// TT probe.
 	tt := w.engine.tt
 	hash := w.pos.Hash
+	// Modify hash when inside a singular extension search to avoid TT pollution.
+	if w.excludedMove != board.NullMove {
+		hash ^= uint64(w.excludedMove) * 0x5a3e7f1b2c4d6e8f
+	}
 	var hashMove board.Move
+	var ttHit bool
+	var ttScoreRaw int16
+	var ttDepthRaw int8
+	var ttBoundRaw Bound
 	isPV := beta-alpha > 1
 
 	if hit, ttMove, ttScore, ttDepth, ttBound := tt.Probe(hash); hit {
+		ttHit = true
 		hashMove = ttMove
-		if !isPV && int8(depth) <= ttDepth {
+		ttScoreRaw = ttScore
+		ttDepthRaw = ttDepth
+		ttBoundRaw = ttBound
+		if !isPV && int8(depth) <= ttDepth && w.excludedMove == board.NullMove {
 			score := scoreFromTT(ttScore, ply)
 			switch ttBound {
 			case BoundExact:
@@ -158,8 +171,8 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
-	// Null-move pruning.
-	if nullAllowed && !isPV && !inCheck && depth > 3 {
+	// Null-move pruning (skip during singular extension search).
+	if nullAllowed && !isPV && !inCheck && depth > 3 && w.excludedMove == board.NullMove {
 		w.pos.MakeNullMove()
 		nullScore, _ := w.negamax(depth-1-3, -beta, -beta+1, ply+1, false)
 		nullScore = -nullScore
@@ -200,6 +213,11 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 
+		// Skip excluded move during singular extension verification search.
+		if m == w.excludedMove {
+			continue
+		}
+
 		// Futility pruning: skip quiet moves that are unlikely to raise alpha.
 		if futile && bestScore > -MateScore+MaxDepth && !m.IsCapture() && !m.IsPromotion() {
 			continue
@@ -212,6 +230,26 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		if movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other()) {
 			extension = 1
 		}
+
+		// Singular extension: if the TT move is significantly better than
+		// all alternatives, extend its search by 1 ply.
+		if extension == 0 && depth >= 8 && m == hashMove && ttHit &&
+			ttDepthRaw >= int8(depth-3) && ttBoundRaw != BoundUpper &&
+			w.excludedMove == board.NullMove {
+			sBeta := int(scoreFromTT(ttScoreRaw, ply)) - depth*2
+			sDepth := (depth - 1) / 2
+
+			w.pos.UnmakeMove(m)
+			w.excludedMove = m
+			seScore, _ := w.negamax(sDepth, sBeta-1, sBeta, ply, false)
+			w.excludedMove = board.NullMove
+			w.pos.MakeMove(m)
+
+			if seScore < sBeta {
+				extension = 1
+			}
+		}
+
 		newDepth := depth - 1 + extension
 
 		var score int
@@ -282,8 +320,8 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		}
 	}
 
-	// TT store.
-	if !w.shouldStop() {
+	// TT store (skip during singular extension search — hash is modified).
+	if !w.shouldStop() && w.excludedMove == board.NullMove {
 		var bound Bound
 		if bestScore >= beta {
 			bound = BoundLower
