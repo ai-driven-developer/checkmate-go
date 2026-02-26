@@ -190,7 +190,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		return 0, nil // stalemate
 	}
 
-	OrderMoves(&ml, hashMove, w.killers[ply], &w.history, w.pos.SideToMove)
+	OrderMoves(&ml, hashMove, w.killers[ply], &w.history, w.pos.SideToMove, &w.pos)
 
 	origAlpha := alpha
 	bestScore := -Infinity
@@ -319,10 +319,16 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, nil, 0)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, nil, 0, nil)
 
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
+
+		// SEE pruning: skip captures that lose material.
+		if SEE(&w.pos, m) < 0 {
+			continue
+		}
+
 		w.pos.MakeMove(m)
 		score := -w.quiesce(-beta, -alpha, ply+1)
 		w.pos.UnmakeMove(m)

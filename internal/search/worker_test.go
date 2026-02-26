@@ -176,7 +176,7 @@ func TestHistoryHeuristicOrdering(t *testing.T) {
 	ml.Add(e4)
 	ml.Add(nf3)
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White, nil)
 
 	// Nf3 (score 1000) should come first, then e4 (10), then d3 (0).
 	if ml.Moves[0] != nf3 {
@@ -278,7 +278,7 @@ func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	ml.Add(nf3)
 	ml.Add(capture)
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White, nil)
 
 	if ml.Moves[0] != capture {
 		t.Error("capture should still come before quiet move with high history score")
