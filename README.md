@@ -17,15 +17,14 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
-## Estimated Rating
+## Lichess Rating
 
-Approximate Elo ratings estimated by playing against Stockfish at various skill levels:
+Plays as a bot on Lichess: [checkmatego-bot](https://lichess.org/@/checkmatego-bot)
 
-| Version | Elo  | Lichess Bullet | Lichess Blitz |
-|---------|------|----------------|---------------|
-| 1.0.0   | 1429 |                |               |
-| 1.1.0   | 1443 | 1823           | 1748          |
-| 1.2.0   | 1592 |                |               |
+| Version | Bullet | Blitz |
+|---------|--------|-------|
+| 1.1.0   | 1823   | 1823  |
+| 1.2.0   | 2105   | 2108  |
 
 ## Building
 
