@@ -51,7 +51,7 @@ func Evaluate(pos *board.Position) int {
 	return score
 }
 
-// mobilityScore computes a lightweight mobility bonus for knights and bishops.
+// mobilityScore computes a mobility bonus for minor and major pieces.
 func mobilityScore(pos *board.Position) int {
 	score := 0
 	occ := pos.AllOccupied
@@ -82,6 +82,34 @@ func mobilityScore(pos *board.Position) int {
 		sq := bb.PopLSB()
 		attacks := movegen.BishopAttacks(sq, occ) &^ pos.Occupied[board.Black]
 		score -= attacks.Count() * 5
+	}
+
+	// Rook mobility.
+	bb = pos.ColorPieces(board.White, board.Rook)
+	for bb != 0 {
+		sq := bb.PopLSB()
+		attacks := movegen.RookAttacks(sq, occ) &^ pos.Occupied[board.White]
+		score += attacks.Count() * 3
+	}
+	bb = pos.ColorPieces(board.Black, board.Rook)
+	for bb != 0 {
+		sq := bb.PopLSB()
+		attacks := movegen.RookAttacks(sq, occ) &^ pos.Occupied[board.Black]
+		score -= attacks.Count() * 3
+	}
+
+	// Queen mobility.
+	bb = pos.ColorPieces(board.White, board.Queen)
+	for bb != 0 {
+		sq := bb.PopLSB()
+		attacks := movegen.QueenAttacks(sq, occ) &^ pos.Occupied[board.White]
+		score += attacks.Count() * 2
+	}
+	bb = pos.ColorPieces(board.Black, board.Queen)
+	for bb != 0 {
+		sq := bb.PopLSB()
+		attacks := movegen.QueenAttacks(sq, occ) &^ pos.Occupied[board.Black]
+		score -= attacks.Count() * 2
 	}
 
 	return score

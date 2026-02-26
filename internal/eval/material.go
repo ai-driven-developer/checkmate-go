@@ -13,6 +13,9 @@ var PieceValue = [7]int{
 	20000, // King
 }
 
+// Bishop pair bonus in centipawns.
+const bishopPairBonus = 30
+
 // materialBalance returns material score from White's perspective.
 func materialBalance(pos *board.Position) int {
 	score := 0
@@ -21,5 +24,14 @@ func materialBalance(pos *board.Position) int {
 		black := pos.ColorPieces(board.Black, piece).Count()
 		score += PieceValue[piece] * (white - black)
 	}
+
+	// Bishop pair bonus.
+	if pos.ColorPieces(board.White, board.Bishop).Count() >= 2 {
+		score += bishopPairBonus
+	}
+	if pos.ColorPieces(board.Black, board.Bishop).Count() >= 2 {
+		score -= bishopPairBonus
+	}
+
 	return score
 }

@@ -13,7 +13,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Move ordering:** hash move, SEE-aware capture ordering (good captures first, losing captures last), MVV-LVA, killer moves, history heuristic, promotion bonus
 - **Static Exchange Evaluation (SEE):** full exchange sequence analysis with x-ray attack discovery, en passant and promotion support
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
-- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, piece-square tables, mobility, passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure)
+- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure)
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 

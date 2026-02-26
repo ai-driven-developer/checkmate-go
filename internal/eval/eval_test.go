@@ -101,6 +101,77 @@ func TestTaperedEvalMiddlegamePrefersKingSafety(t *testing.T) {
 	}
 }
 
+func TestRookMobility(t *testing.T) {
+	// Rook on open file (e4, no pawns) should have better mobility
+	// than rook boxed in on a1.
+	posOpen := &board.Position{}
+	_ = posOpen.SetFromFEN("4k3/8/8/8/4R3/8/8/4K3 w - - 0 1")
+	scoreOpen := mobilityScore(posOpen)
+
+	posBoxed := &board.Position{}
+	_ = posBoxed.SetFromFEN("4k3/8/8/8/8/8/1P6/RP2K3 w - - 0 1")
+	scoreBoxed := mobilityScore(posBoxed)
+
+	if scoreOpen <= scoreBoxed {
+		t.Errorf("open rook should have more mobility: open=%d, boxed=%d",
+			scoreOpen, scoreBoxed)
+	}
+}
+
+func TestQueenMobility(t *testing.T) {
+	// Queen in the center should have more mobility than on a1.
+	posCenter := &board.Position{}
+	_ = posCenter.SetFromFEN("4k3/8/8/8/4Q3/8/8/4K3 w - - 0 1")
+	scoreCenter := mobilityScore(posCenter)
+
+	posCorner := &board.Position{}
+	_ = posCorner.SetFromFEN("4k3/8/8/8/8/8/8/Q3K3 w - - 0 1")
+	scoreCorner := mobilityScore(posCorner)
+
+	if scoreCenter <= scoreCorner {
+		t.Errorf("central queen should have more mobility: center=%d, corner=%d",
+			scoreCenter, scoreCorner)
+	}
+}
+
+func TestBishopPairBonus(t *testing.T) {
+	// White with two bishops vs White with one bishop — pair should score higher.
+	posPair := &board.Position{}
+	_ = posPair.SetFromFEN("4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1")
+	matPair := materialBalance(posPair)
+
+	posSingle := &board.Position{}
+	_ = posSingle.SetFromFEN("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1")
+	matSingle := materialBalance(posSingle)
+
+	// Pair should be worth more than just an extra bishop's value.
+	diff := matPair - matSingle
+	if diff <= PieceValue[board.Bishop] {
+		t.Errorf("bishop pair should add bonus beyond piece value: diff=%d, bishop=%d",
+			diff, PieceValue[board.Bishop])
+	}
+}
+
+func TestBishopPairSymmetry(t *testing.T) {
+	// Both sides with bishop pair — bonus should cancel.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("2b1kb2/8/8/8/8/8/8/2B1KB2 w - - 0 1")
+	mat := materialBalance(pos)
+	if mat != 0 {
+		t.Errorf("symmetric bishop pairs should give 0, got %d", mat)
+	}
+}
+
+func TestNoBishopPairWithOneBishop(t *testing.T) {
+	// One bishop each — no pair bonus.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("2b1k3/8/8/8/8/8/8/2B1K3 w - - 0 1")
+	mat := materialBalance(pos)
+	if mat != 0 {
+		t.Errorf("one bishop each should give 0, got %d", mat)
+	}
+}
+
 func TestPSTMirror(t *testing.T) {
 	if MirrorSquare(board.A1) != board.A8 {
 		t.Errorf("mirror A1 should be A8, got %s", MirrorSquare(board.A1))
