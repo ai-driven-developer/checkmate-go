@@ -20,11 +20,11 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 
 Approximate Elo ratings estimated by playing against Stockfish at various skill levels:
 
-| Version | Elo  |
-|---------|------|
-| 1.0.0   | 1429 |
-| 1.1.0   | 1443 |
-| 1.2.0   | 1592 |
+| Version | Elo  | Lichess Bullet | Lichess Blitz |
+|---------|------|----------------|---------------|
+| 1.0.0   | 1429 |                |               |
+| 1.1.0   | 1443 | 1823           | 1748          |
+| 1.2.0   | 1592 |                |               |
 
 ## Building
 
