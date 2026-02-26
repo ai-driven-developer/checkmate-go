@@ -37,11 +37,12 @@ func Evaluate(pos *board.Position) int {
 	mgPST, egPST := pstBalanceTapered(pos)
 	mgPP, egPP := passedPawnScore(pos)
 	mgPS, egPS := pawnStructureScore(pos)
+	mgKS, egKS := kingSafetyScore(pos)
 
 	phase := gamePhase(pos)
 	// Tapered score: interpolate between MG and EG.
-	mg := mat + mgPST + mob + mgPP + mgPS
-	eg := mat + egPST + mob + egPP + egPS
+	mg := mat + mgPST + mob + mgPP + mgPS + mgKS
+	eg := mat + egPST + mob + egPP + egPS + egKS
 	score := (mg*phase + eg*(totalPhase-phase)) / totalPhase
 
 	if pos.SideToMove == board.Black {

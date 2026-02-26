@@ -13,7 +13,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Move ordering:** hash move, SEE-aware capture ordering (good captures first, losing captures last), MVV-LVA, killer moves, history heuristic, promotion bonus
 - **Static Exchange Evaluation (SEE):** full exchange sequence analysis with x-ray attack discovery, en passant and promotion support
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
-- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, piece-square tables, mobility, passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties)
+- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, piece-square tables, mobility, passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure)
 - **Time management:** supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
@@ -90,7 +90,7 @@ The test suite includes 165+ tests covering:
 
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
-- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns)
+- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure)
 - **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, 50-move rule, null-move pruning, futility pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table, time control allocation, SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
@@ -115,7 +115,7 @@ cmd/checkmatego/       Entry point
 internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing
   movegen/             Legal move generation, magic bitboards, perft
-  eval/                Tapered evaluation (material + PST + mobility + passed pawns + pawn structure, MG/EG interpolation)
+  eval/                Tapered evaluation (material + PST + mobility + passed pawns + pawn structure + king safety, MG/EG interpolation)
   search/              PVS, quiescence, TT, move ordering, SEE, killer moves, history heuristic, LMR, null-move pruning, futility pruning, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```
