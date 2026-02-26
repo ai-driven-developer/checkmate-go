@@ -23,7 +23,7 @@ Plays as a bot on Lichess: [checkmatego-bot](https://lichess.org/@/checkmatego-b
 
 | Version | Bullet | Blitz |
 |---------|--------|-------|
-| 1.1.0   | 1823   | 1823  |
+| 1.1.0   | 1823   | 1748  |
 | 1.2.0   | 2105   | 2108  |
 
 ## Building
