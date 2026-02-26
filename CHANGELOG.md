@@ -1,8 +1,23 @@
 # Changelog
 
-## 1.2.0
+## 1.3.0
 
-**Estimated Elo: 1592** (+149 over 1.1.0)
+### Search
+- **Singular extensions:** extend search by 1 ply when the TT move is significantly better than all alternatives (depth >= 8)
+- **Static Exchange Evaluation (SEE):** full exchange sequence analysis with x-ray attack discovery, en passant and promotion support
+- **SEE pruning in quiescence:** skip captures that lose material
+
+### Move Ordering
+- **SEE-aware capture ordering:** good captures (SEE >= 0) before quiet moves, losing captures last
+
+### Evaluation
+- **Pawn structure:** doubled pawn penalty, isolated pawn penalty, backward pawn penalty (separate MG/EG values)
+- **King safety:** pawn shield bonus, open file penalty near king, king zone attacker pressure (quadratic scaling)
+- **Rook mobility:** 3cp per available square
+- **Queen mobility:** 2cp per available square
+- **Bishop pair bonus:** 30cp for having both bishops
+
+## 1.2.0
 
 ### Search
 - **Principal Variation Search (PVS):** first move searched with full window, remaining moves with zero-window and re-search on fail high
@@ -21,15 +36,11 @@
 
 ## 1.1.0
 
-**Estimated Elo: 1443** (+14 over 1.0.0)
-
 ### Search
 - **Null-move pruning:** skip a move and search with reduced depth to get a lower bound on the score
 - **Killer moves:** store quiet moves that caused beta cutoffs for improved move ordering
 
 ## 1.0.0
-
-**Estimated Elo: 1429**
 
 Initial release.
 
