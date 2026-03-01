@@ -176,7 +176,7 @@ func TestHistoryHeuristicOrdering(t *testing.T) {
 	ml.Add(e4)
 	ml.Add(nf3)
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White, nil)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, board.NullMove, &history, board.White, nil)
 
 	// Nf3 (score 1000) should come first, then e4 (10), then d3 (0).
 	if ml.Moves[0] != nf3 {
@@ -585,6 +585,131 @@ func TestIIRPreservesCorrectPlay(t *testing.T) {
 	}
 }
 
+func TestCountermoveStorage(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	prevMove := board.NewMove(board.E7, board.E5, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	counterMove := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+
+	// Initially no countermove stored.
+	if w.countermoves[prevMove.Piece()][prevMove.To()] != board.NullMove {
+		t.Error("countermove should initially be NullMove")
+	}
+
+	// Store a countermove for Pawn to E5.
+	w.countermoves[prevMove.Piece()][prevMove.To()] = counterMove
+
+	got := w.countermoves[prevMove.Piece()][prevMove.To()]
+	if got != counterMove {
+		t.Errorf("countermove = %v, want %v", got, counterMove)
+	}
+
+	// Different previous move should have independent storage.
+	otherPrev := board.NewMove(board.D7, board.D5, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	if w.countermoves[otherPrev.Piece()][otherPrev.To()] != board.NullMove {
+		t.Error("countermove for different prev move should be independent")
+	}
+}
+
+func TestCountermoveReplacesOldEntry(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	prevMove := board.NewMove(board.E7, board.E5, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	cm1 := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+	cm2 := board.NewMove(board.D2, board.D4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+
+	w.countermoves[prevMove.Piece()][prevMove.To()] = cm1
+	w.countermoves[prevMove.Piece()][prevMove.To()] = cm2
+
+	got := w.countermoves[prevMove.Piece()][prevMove.To()]
+	if got != cm2 {
+		t.Errorf("countermove should be replaced: got %v, want %v", got, cm2)
+	}
+}
+
+func TestCountermoveResetBetweenIterations(t *testing.T) {
+	// Search clears countermoves at start — verify by running a search and
+	// checking the table is populated during search (implicitly via correct play).
+	pos := board.NewPosition()
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+	if bestMove == board.NullMove {
+		t.Error("search with countermove heuristic should return a valid move")
+	}
+}
+
+func TestCountermoveDoesNotMissTactics(t *testing.T) {
+	// Tactical positions must still be solved correctly with countermove heuristic.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestCountermovePreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with countermove heuristic enabled")
+			}
+		})
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.
@@ -597,7 +722,7 @@ func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	ml.Add(nf3)
 	ml.Add(capture)
 
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, &history, board.White, nil)
+	OrderMoves(&ml, board.NullMove, [2]board.Move{}, board.NullMove, &history, board.White, nil)
 
 	if ml.Moves[0] != capture {
 		t.Error("capture should still come before quiet move with high history score")

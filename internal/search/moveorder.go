@@ -16,11 +16,12 @@ var mvvLva = [7][7]int{
 // OrderMoves sorts the move list. If hashMove is not NullMove, it gets
 // highest priority. Captures are ordered by MVV-LVA, with losing captures
 // (negative SEE) demoted below quiet moves. Killer moves are ordered
-// between good captures and plain quiet moves. Remaining quiet moves
-// are ordered by history heuristic scores.
+// between good captures and plain quiet moves. The countermove (a quiet
+// move that refuted the opponent's previous move) is tried after killers.
+// Remaining quiet moves are ordered by history heuristic scores.
 // When pos is non-nil, SEE is used to distinguish good and bad captures.
 // Uses insertion sort (optimal for ~30-50 moves).
-func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
+func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
 	var scores [256]int32
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
@@ -38,6 +39,8 @@ func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, 
 			}
 		} else if m == killers[0] || m == killers[1] {
 			scores[i] = 500_000
+		} else if m == countermove {
+			scores[i] = 400_000
 		} else if history != nil {
 			scores[i] = history[side][m.From()][m.To()]
 		}
