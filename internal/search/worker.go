@@ -182,11 +182,22 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		}
 	}
 
+	// Static eval for pruning decisions.
+	staticEval := eval.Evaluate(&w.pos)
+
+	// Reverse futility pruning: at shallow depths, if static eval is far
+	// above beta, the position is so good that we can prune immediately.
+	if !isPV && !inCheck && depth <= 7 && w.excludedMove == board.NullMove {
+		margin := depth * 80
+		if staticEval-margin >= beta {
+			return staticEval, nil
+		}
+	}
+
 	// Futility pruning: at shallow depths, if static eval + margin is far
 	// below alpha, quiet moves are unlikely to raise it, so we can skip them.
 	futile := false
 	if !isPV && !inCheck && depth <= 2 {
-		staticEval := eval.Evaluate(&w.pos)
 		margin := depth * 150 // 150 cp per depth ply
 		if staticEval+margin <= alpha {
 			futile = true

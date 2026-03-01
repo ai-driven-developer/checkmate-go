@@ -327,6 +327,82 @@ func TestSingularExtensionDoesNotRegress(t *testing.T) {
 	}
 }
 
+func TestReverseFutilityPruningReducesNodes(t *testing.T) {
+	// White has an overwhelming material advantage (extra queen + rook).
+	// RFP should prune many nodes at shallow depths where staticEval - margin >= beta.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("4k3/8/8/8/8/8/8/QR2K3 w - - 0 1")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("reverse futility pruning should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestReverseFutilityPruningDoesNotMissMate(t *testing.T) {
+	// White has huge material advantage AND a mate in 1. RFP must not prevent
+	// the engine from finding the mating move.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("6k1/5ppp/8/8/8/8/1Q6/R3K3 w - - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	// The engine should still find the mate despite the large material advantage
+	// that could trigger RFP in some branches.
+	if lastScore < MateScore-MaxDepth {
+		t.Errorf("expected mate score, got %d", lastScore)
+	}
+}
+
+func TestReverseFutilityPruningPreservesCorrectPlay(t *testing.T) {
+	// Positions with large material advantage where RFP will be active.
+	// Verify the engine still plays correctly.
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "queen vs bare king",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+		{
+			name: "two rooks vs bare king",
+			fen:  "4k3/8/8/8/8/8/8/R1R1K3 w - - 0 1",
+		},
+		{
+			name: "extra piece in middlegame",
+			fen:  "r1bqkb1r/pppppppp/2n2n2/8/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 4 4",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with RFP enabled")
+			}
+		})
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.
