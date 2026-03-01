@@ -169,6 +169,12 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 		}
 	}
 
+	// Internal iterative reductions: if we have no hash move to guide the
+	// search, reduce depth by 1 so we fill the TT faster.
+	if depth >= 4 && hashMove == board.NullMove {
+		depth--
+	}
+
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
 	// Null-move pruning (skip during singular extension search).

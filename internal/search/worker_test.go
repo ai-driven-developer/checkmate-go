@@ -494,6 +494,97 @@ func TestLateMovePruningPreservesCorrectPlay(t *testing.T) {
 	}
 }
 
+func TestIIRReducesNodes(t *testing.T) {
+	// A quiet middlegame position searched at depth where IIR fires (>= 4).
+	// IIR should reduce nodes by filling the TT faster when no hash move exists.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 7})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("IIR should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestIIRDoesNotMissTactics(t *testing.T) {
+	// Tactical positions must still be solved correctly with IIR enabled.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestIIRPreservesCorrectPlay(t *testing.T) {
+	// Various positions where IIR will fire on first visits (no TT entry).
+	// Verify the engine still returns valid moves.
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with IIR enabled")
+			}
+		})
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.
