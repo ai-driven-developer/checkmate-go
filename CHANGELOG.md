@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0
+
+### Search
+- **Late move pruning (LMP):** skip quiet moves beyond a move count threshold at shallow depths (depth <= 3)
+- **Reverse futility pruning:** prune nodes where static eval minus a margin already exceeds beta (depth <= 5)
+- **Internal iterative reductions:** reduce depth by 1 when no hash move is available at higher depths (depth >= 4)
+- **Improved time management:** better time allocation for classical and increment time controls
+
+### Move Ordering
+- **Countermove heuristic:** track the move that refuted the opponent's last move, used as an additional quiet move ordering signal
+
 ## 1.3.0
 
 ### Search
