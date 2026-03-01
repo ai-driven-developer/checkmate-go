@@ -216,6 +216,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 
 	OrderMoves(&ml, hashMove, w.killers[ply], &w.history, w.pos.SideToMove, &w.pos)
 
+	// Late move pruning thresholds: maximum quiet move index per depth.
+	var lmpThresholds = [4]int{0, 5, 8, 12}
+
 	origAlpha := alpha
 	bestScore := -Infinity
 	bestMove := board.NullMove
@@ -231,6 +234,13 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool) (int, []
 
 		// Futility pruning: skip quiet moves that are unlikely to raise alpha.
 		if futile && bestScore > -MateScore+MaxDepth && !m.IsCapture() && !m.IsPromotion() {
+			continue
+		}
+
+		// Late move pruning: at shallow depths, skip quiet moves that appear
+		// late in the move ordering, as they are unlikely to improve alpha.
+		if !isPV && !inCheck && depth <= 3 && bestScore > -MateScore+MaxDepth &&
+			!m.IsCapture() && !m.IsPromotion() && i >= lmpThresholds[depth] {
 			continue
 		}
 
