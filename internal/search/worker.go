@@ -16,6 +16,7 @@ type worker struct {
 	history      [2][64][64]int32        // history heuristic [color][from][to]
 	countermoves [7][64]board.Move       // countermove heuristic [prevPiece][prevTo]
 	excludedMove board.Move              // move to skip during singular extension search
+	staticEvals  [MaxDepth]int           // static eval per ply for improving detection
 }
 
 // workerResult holds the outcome of a worker's search.
@@ -179,10 +180,28 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
+	// Static eval for pruning decisions.
+	staticEval := eval.Evaluate(&w.pos)
+
+	// Track static eval per ply for improving detection.
+	if inCheck {
+		w.staticEvals[ply] = -Infinity
+	} else {
+		w.staticEvals[ply] = staticEval
+	}
+
+	// Improving flag: position eval is better than 2 plies ago (same side).
+	improving := !inCheck && ply >= 2 && w.staticEvals[ply-2] != -Infinity &&
+		staticEval > w.staticEvals[ply-2]
+
 	// Null-move pruning (skip during singular extension search).
 	if nullAllowed && !isPV && !inCheck && depth > 3 && w.excludedMove == board.NullMove {
+		R := 3
+		if !improving {
+			R++
+		}
 		w.pos.MakeNullMove()
-		nullScore, _ := w.negamax(depth-1-3, -beta, -beta+1, ply+1, false, board.NullMove)
+		nullScore, _ := w.negamax(depth-1-R, -beta, -beta+1, ply+1, false, board.NullMove)
 		nullScore = -nullScore
 		w.pos.UnmakeNullMove()
 		if nullScore >= beta {
@@ -190,13 +209,13 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		}
 	}
 
-	// Static eval for pruning decisions.
-	staticEval := eval.Evaluate(&w.pos)
-
 	// Reverse futility pruning: at shallow depths, if static eval is far
 	// above beta, the position is so good that we can prune immediately.
 	if !isPV && !inCheck && depth <= 7 && w.excludedMove == board.NullMove {
 		margin := depth * 80
+		if improving {
+			margin = depth * 60
+		}
 		if staticEval-margin >= beta {
 			return staticEval, nil
 		}
@@ -207,6 +226,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	futile := false
 	if !isPV && !inCheck && depth <= 2 {
 		margin := depth * 150 // 150 cp per depth ply
+		if !improving {
+			margin = depth * 120
+		}
 		if staticEval+margin <= alpha {
 			futile = true
 		}
@@ -231,7 +253,12 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	OrderMoves(&ml, hashMove, w.killers[ply], countermove, &w.history, w.pos.SideToMove, &w.pos)
 
 	// Late move pruning thresholds: maximum quiet move index per depth.
-	var lmpThresholds = [4]int{0, 5, 8, 12}
+	var lmpThresholds [4]int
+	if improving {
+		lmpThresholds = [4]int{0, 6, 10, 15}
+	} else {
+		lmpThresholds = [4]int{0, 4, 6, 9}
+	}
 
 	origAlpha := alpha
 	bestScore := -Infinity
@@ -303,6 +330,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 					mi = 63
 				}
 				reduction = lmrReductions[depth][mi]
+				if !improving {
+					reduction++
+				}
 				if reduction < 1 {
 					reduction = 1
 				}

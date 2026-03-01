@@ -7,7 +7,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
-- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, internal iterative reductions (IIR), reverse futility pruning, futility pruning, late move pruning, late move reductions, check extensions, singular extensions, and quiescence search with SEE pruning
+- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, internal iterative reductions (IIR), reverse futility pruning, futility pruning, late move pruning, late move reductions, improving heuristic, check extensions, singular extensions, and quiescence search with SEE pruning
 - **Transposition table:** lockless hash table with depth-preferred replacement and generation aging
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
 - **Move ordering:** hash move, SEE-aware capture ordering (good captures first, losing captures last), MVV-LVA, killer moves, countermove heuristic, history heuristic, promotion bonus
@@ -91,7 +91,7 @@ The test suite includes 165+ tests covering:
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure)
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, countermove heuristic, 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table, time control allocation, SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic, killer moves, countermove heuristic, 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, improving heuristic, aspiration windows, PVS, check extensions, multi-threaded search, repetition avoidance, transposition table, time control allocation, SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
 ## Benchmarks
@@ -116,6 +116,6 @@ internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing
   movegen/             Legal move generation, magic bitboards, perft
   eval/                Tapered evaluation (material + PST + mobility + passed pawns + pawn structure + king safety, MG/EG interpolation)
-  search/              PVS, quiescence, TT, move ordering, SEE, killer moves, countermove heuristic, history heuristic, LMR, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, check extensions, aspiration windows, time control, Lazy SMP
+  search/              PVS, quiescence, TT, move ordering, SEE, killer moves, countermove heuristic, history heuristic, LMR, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```
