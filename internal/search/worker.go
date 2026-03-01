@@ -97,6 +97,14 @@ func (w *worker) search(maxDepth int) workerResult {
 		if score > MateScore-MaxDepth || score < -MateScore+MaxDepth {
 			break
 		}
+		// Main thread: check soft time limit with stability/score-drop adjustments.
+		if w.id == 0 && !w.engine.limits.Infinite && w.engine.limits.Depth == 0 &&
+			result.move != board.NullMove {
+			if w.engine.tm.shouldStopSoft(result.move, score, depth) {
+				w.engine.stopFlag.Store(true)
+				break
+			}
+		}
 	}
 	return result
 }
@@ -106,7 +114,7 @@ func (w *worker) shouldStop() bool {
 		return true
 	}
 	if !w.engine.limits.Infinite && w.engine.limits.Depth == 0 {
-		return time.Now().After(w.engine.deadline)
+		return w.engine.tm.shouldStopHard()
 	}
 	return false
 }

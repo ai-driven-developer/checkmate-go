@@ -46,7 +46,7 @@ type Engine struct {
 	onInfo       InfoCallback
 	nodes        atomic.Uint64
 	stopFlag     atomic.Bool
-	deadline     time.Time
+	tm           TimeManager
 	start        time.Time
 	moveOverhead time.Duration
 	threads      int
@@ -94,8 +94,8 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 	e.limits = limits
 	e.nodes.Store(0)
 	e.stopFlag.Store(false)
-	e.start = time.Now()
-	e.deadline = e.computeDeadline()
+	e.tm.init(limits, pos.SideToMove, e.moveOverhead)
+	e.start = e.tm.startTime
 	e.tt.NewSearch()
 
 	maxDepth := MaxDepth
