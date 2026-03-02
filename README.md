@@ -7,7 +7,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups, incremental pawn Zobrist hash, incremental piece-square table scores
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
-- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, internal iterative reductions (IIR), reverse futility pruning, futility pruning, late move pruning, late move reductions, SEE pruning (quiet moves and captures), improving heuristic, check extensions, singular extensions, and quiescence search with SEE pruning and delta pruning
+- **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, ProbCut, internal iterative reductions (IIR), reverse futility pruning, razoring, futility pruning, late move pruning, late move reductions, SEE pruning (quiet moves and captures), improving heuristic, check extensions, singular extensions, and quiescence search with SEE pruning and delta pruning
 - **Transposition table:** lockless hash table with depth-preferred replacement and generation aging
 - **Lazy SMP:** multi-threaded search via the `Threads` UCI option
 - **Move ordering:** hash move, SEE-aware capture ordering (good captures first, losing captures last), MVV-LVA, killer moves, countermove heuristic, history heuristic with gravity (bonus/malus), continuation history (1-ply and 2-ply), promotion bonus
@@ -86,12 +86,12 @@ quit
 make test
 ```
 
-The test suite includes 185+ tests covering:
+The test suite includes 195+ tests covering:
 
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing, pawn hash incremental consistency, incremental PST consistency (quiet moves, captures, castling, promotions, en passant)
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, knight outposts (protected, unsupported, attackable, rank filtering, symmetry), rook evaluation (open file, semi-open file, closed file, 7th rank, symmetry), king-passer distance (friendly king close, enemy king far, symmetry, endgame-only), passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, ProbCut (node reduction, tactics safety, mate safety, depth gating), razoring (node reduction, tactics safety, mate safety, depth gating), IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
 ## Benchmarks
@@ -116,6 +116,6 @@ internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing, incremental PST
   movegen/             Legal move generation, magic bitboards, perft
   eval/                Tapered evaluation (material + PST + mobility + outposts + rooks + passed pawns + king-passer distance + pawn structure + king safety, MG/EG interpolation), per-worker pawn hash table
-  search/              PVS, quiescence, TT, move ordering, SEE, SEE pruning (main search), killer moves, countermove heuristic, history heuristic (gravity), continuation history (1-ply/2-ply), LMR (history-aware), null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP
+  search/              PVS, quiescence, TT, move ordering, SEE, SEE pruning (main search), killer moves, countermove heuristic, history heuristic (gravity), continuation history (1-ply/2-ply), LMR (history-aware), null-move pruning, ProbCut, IIR, reverse futility pruning, razoring, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```

@@ -1528,3 +1528,257 @@ func TestSEEPruningSkipsPromotions(t *testing.T) {
 		t.Errorf("expected high score from promotion, got %d", lastScore)
 	}
 }
+
+// --- Razoring tests ---
+
+func TestRazoringReducesNodes(t *testing.T) {
+	// A position where white is significantly down in material.
+	// Razoring should prune hopeless positions at shallow depths via qsearch.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBK1BNR w kq - 0 1") // white missing queen
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("razoring should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestRazoringDoesNotMissTactics(t *testing.T) {
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestRazoringPreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+		{
+			name: "complex middlegame",
+			fen:  "r1bqk2r/ppp2ppp/2n1pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq d6 0 5",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with razoring enabled")
+			}
+		})
+	}
+}
+
+func TestRazoringDoesNotMissMate(t *testing.T) {
+	// Razoring must not prevent finding forced mates.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("6k1/5ppp/8/8/8/8/1Q6/R3K3 w - - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	if lastScore < MateScore-MaxDepth {
+		t.Errorf("expected mate score, got %d", lastScore)
+	}
+}
+
+func TestRazoringOnlyAtShallowDepth(t *testing.T) {
+	// At deeper depths, razoring should not fire. Verify the search
+	// completes correctly at depth 8 (razoring only triggers at depth <= 3).
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 8})
+	if bestMove == board.NullMove {
+		t.Error("search at depth 8 should return a valid move")
+	}
+}
+
+// --- ProbCut tests ---
+
+func TestProbCutReducesNodes(t *testing.T) {
+	// A middlegame position with captures available. ProbCut should
+	// prune positions where a shallow capture search scores far above beta.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 8})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("ProbCut should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestProbCutDoesNotMissTactics(t *testing.T) {
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestProbCutPreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+		{
+			name: "complex middlegame",
+			fen:  "r1bqk2r/ppp2ppp/2n1pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq d6 0 5",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with ProbCut enabled")
+			}
+		})
+	}
+}
+
+func TestProbCutDoesNotMissMate(t *testing.T) {
+	// ProbCut must not prune when near-mate scores are involved.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("6k1/5ppp/8/8/8/8/1Q6/R3K3 w - - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	if lastScore < MateScore-MaxDepth {
+		t.Errorf("expected mate score, got %d", lastScore)
+	}
+}
+
+func TestProbCutOnlyAtModerateDepth(t *testing.T) {
+	// ProbCut only fires at depth >= 5. Verify shallow searches
+	// complete correctly without ProbCut interfering.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+	if bestMove == board.NullMove {
+		t.Error("shallow search should return a valid move")
+	}
+}

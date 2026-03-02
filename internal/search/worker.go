@@ -246,6 +246,38 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		}
 	}
 
+	// ProbCut: at moderate depths, if a shallow capture search with a
+	// raised beta finds a score >= beta + margin, the full-depth search
+	// is unlikely to score below beta — prune immediately.
+	if !isPV && !inCheck && depth >= 5 && w.excludedMove == board.NullMove &&
+		beta > -MateScore+MaxDepth && beta < MateScore-MaxDepth {
+		rBeta := beta + probCutMargin
+
+		var pcML board.MoveList
+		movegen.GenerateCaptures(&w.pos, &pcML)
+
+		var pcScores [256]int32
+		ScoreMoves(&pcML, &pcScores, hashMove, [2]board.Move{}, board.NullMove, nil, [2]*[7][64]int32{}, 0, nil)
+
+		for j := 0; j < pcML.Count; j++ {
+			PickBest(&pcML, &pcScores, j)
+			pcMove := pcML.Moves[j]
+
+			if SEE(&w.pos, pcMove) < 0 {
+				continue
+			}
+
+			w.pos.MakeMove(pcMove)
+			// Shallow search at reduced depth with raised beta window.
+			pcScore := -w.negamax(depth-4, -rBeta, -rBeta+1, ply+1, false, pcMove)
+			w.pos.UnmakeMove(pcMove)
+
+			if pcScore >= rBeta {
+				return pcScore
+			}
+		}
+	}
+
 	// Reverse futility pruning: at shallow depths, if static eval is far
 	// above beta, the position is so good that we can prune immediately.
 	if !isPV && !inCheck && depth <= 7 && w.excludedMove == board.NullMove {
@@ -255,6 +287,17 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		}
 		if staticEval-margin >= beta {
 			return staticEval
+		}
+	}
+
+	// Razoring: at shallow depths, if static eval is significantly below
+	// alpha, verify with quiescence search. If qsearch confirms, prune.
+	if !isPV && !inCheck && depth <= 3 && w.excludedMove == board.NullMove {
+		if staticEval+depth*razoringMargin <= alpha {
+			razorScore := w.quiesce(alpha, beta, ply)
+			if razorScore <= alpha {
+				return razorScore
+			}
 		}
 	}
 

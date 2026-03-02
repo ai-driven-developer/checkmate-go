@@ -17,6 +17,14 @@ const (
 	// formula to keep entries bounded in [-maxHistory, maxHistory].
 	maxHistory = 16384
 
+	// Razoring margin per depth ply: if staticEval + depth*razoringMargin <= alpha,
+	// verify with quiescence search and prune if confirmed.
+	razoringMargin = 300
+
+	// ProbCut margin: if a shallow capture search scores >= beta + probCutMargin,
+	// the full-depth search is unlikely to score below beta.
+	probCutMargin = 200
+
 	// Delta pruning constants for quiescence search.
 	// deltaMargin is the "big delta": if standPat + deltaMargin < alpha,
 	// no capture can possibly raise alpha, so the node is pruned entirely.
