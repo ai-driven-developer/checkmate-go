@@ -13,7 +13,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Move ordering:** hash move, SEE-aware capture ordering (good captures first, losing captures last), MVV-LVA, killer moves, countermove heuristic, history heuristic with gravity (bonus/malus), continuation history (1-ply and 2-ply), promotion bonus
 - **Static Exchange Evaluation (SEE):** full exchange sequence analysis with x-ray attack discovery, en passant and promotion support
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
-- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure), per-worker pawn hash table for caching pawn evaluation
+- **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), knight outposts (pawn-supported, unassailable), rook bonuses (open/semi-open files, 7th rank), passed pawn bonus with king-passer distance (friendly king proximity, enemy king distance), pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure), per-worker pawn hash table for caching pawn evaluation
 - **Time management:** adaptive soft/hard time limits with move stability detection, score-drop extension, and time-aware move allocation (bullet-optimized); supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
@@ -86,11 +86,11 @@ quit
 make test
 ```
 
-The test suite includes 165+ tests covering:
+The test suite includes 185+ tests covering:
 
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing, pawn hash incremental consistency, incremental PST consistency (quiet moves, captures, castling, promotions, en passant)
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
-- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
+- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, knight outposts (protected, unsupported, attackable, rank filtering, symmetry), rook evaluation (open file, semi-open file, closed file, 7th rank, symmetry), king-passer distance (friendly king close, enemy king far, symmetry, endgame-only), passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
 - **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
@@ -115,7 +115,7 @@ cmd/checkmatego/       Entry point
 internal/
   board/               Position, bitboards, moves, FEN, Zobrist hashing, incremental PST
   movegen/             Legal move generation, magic bitboards, perft
-  eval/                Tapered evaluation (material + PST + mobility + passed pawns + pawn structure + king safety, MG/EG interpolation), per-worker pawn hash table
+  eval/                Tapered evaluation (material + PST + mobility + outposts + rooks + passed pawns + king-passer distance + pawn structure + king safety, MG/EG interpolation), per-worker pawn hash table
   search/              PVS, quiescence, TT, move ordering, SEE, SEE pruning (main search), killer moves, countermove heuristic, history heuristic (gravity), continuation history (1-ply/2-ply), LMR (history-aware), null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```

@@ -29,6 +29,9 @@ func EvaluateWithCache(pos *board.Position, pc *PawnCache) int {
 	mob := mobilityScore(pos)
 	mgPST, egPST := pos.PSTMG, pos.PSTEG
 	mgKS, egKS := kingSafetyScore(pos)
+	mgOp, egOp := outpostScore(pos)
+	mgRk, egRk := rookScore(pos)
+	mgKP, egKP := kingPasserDistanceScore(pos)
 
 	var mgPP, egPP, mgPS, egPS int
 	if pc != nil {
@@ -51,8 +54,8 @@ func EvaluateWithCache(pos *board.Position, pc *PawnCache) int {
 
 	phase := pos.Phase
 	// Tapered score: interpolate between MG and EG.
-	mg := mat + mgPST + mob + mgPP + mgPS + mgKS
-	eg := mat + egPST + mob + egPP + egPS + egKS
+	mg := mat + mgPST + mob + mgPP + mgPS + mgKS + mgOp + mgRk + mgKP
+	eg := mat + egPST + mob + egPP + egPS + egKS + egOp + egRk + egKP
 	score := (mg*phase + eg*(totalPhase-phase)) / totalPhase
 
 	if pos.SideToMove == board.Black {
