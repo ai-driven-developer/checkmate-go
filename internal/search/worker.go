@@ -15,6 +15,8 @@ type worker struct {
 	killers      [MaxDepth][2]board.Move // killer moves per ply
 	history      [2][64][64]int32        // history heuristic [color][from][to]
 	countermoves [7][64]board.Move       // countermove heuristic [prevPiece][prevTo]
+	contHist     [2][7][64][7][64]int32  // continuation history [depth_offset][prevPc][prevTo][currPc][currTo]
+	moveStack    [MaxDepth]board.Move    // move that brought us to each ply (for cont hist lookups)
 	excludedMove board.Move              // move to skip during singular extension search
 	staticEvals  [MaxDepth]int           // static eval per ply for improving detection
 	pawnCache    *eval.PawnCache         // per-worker pawn structure cache
@@ -48,6 +50,7 @@ func (w *worker) search(maxDepth int) workerResult {
 
 	w.history = [2][64][64]int32{}
 	w.countermoves = [7][64]board.Move{}
+	w.contHist = [2][7][64][7][64]int32{}
 
 	prevScore := 0
 
@@ -139,6 +142,9 @@ func (w *worker) shouldStop() bool {
 }
 
 func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove board.Move) int {
+	// Track the move that brought us to this ply (for continuation history).
+	w.moveStack[ply] = prevMove
+
 	// Check time every 4096 nodes.
 	if w.engine.nodes.Load()&4095 == 0 && ply > 0 {
 		if w.shouldStop() {
@@ -281,9 +287,18 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		countermove = w.countermoves[prevMove.Piece()][prevMove.To()]
 	}
 
+	// Compute continuation history pointers for move scoring.
+	var ch [2]*[7][64]int32
+	if prevMove != board.NullMove {
+		ch[0] = &w.contHist[0][prevMove.Piece()][prevMove.To()]
+	}
+	if ply >= 1 && w.moveStack[ply-1] != board.NullMove {
+		ch[1] = &w.contHist[1][w.moveStack[ply-1].Piece()][w.moveStack[ply-1].To()]
+	}
+
 	// Score moves for lazy ordering (pick-best on each iteration).
 	var scores [256]int32
-	ScoreMoves(&ml, &scores, hashMove, w.killers[ply], countermove, &w.history, w.pos.SideToMove, &w.pos)
+	ScoreMoves(&ml, &scores, hashMove, w.killers[ply], countermove, &w.history, ch, w.pos.SideToMove, &w.pos)
 
 	// Late move pruning thresholds: maximum quiet move index per depth.
 	var lmpThresholds [4]int
@@ -367,10 +382,16 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 				}
 				// History-aware LMR: reduce more for moves with bad history,
 				// reduce less for moves with good history.
+				// Combine main history with continuation history scores.
 				hist := w.history[w.pos.SideToMove][m.From()][m.To()]
-				if hist < -1024 {
+				for _, chp := range ch {
+					if chp != nil {
+						hist += chp[m.Piece()][m.To()]
+					}
+				}
+				if hist < -2048 {
 					reduction++
-				} else if hist > 1024 {
+				} else if hist > 2048 {
 					reduction--
 				}
 				if reduction < 1 {
@@ -424,10 +445,12 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 					// all previously searched quiet moves that failed to
 					// produce a cutoff.
 					w.updateHistory(w.pos.SideToMove, m.From(), m.To(), bonus)
+					w.updateContHist(ply, m, bonus)
 					for j := 0; j < i; j++ {
 						prev := ml.Moves[j]
 						if !prev.IsCapture() && prev != w.excludedMove {
 							w.updateHistory(w.pos.SideToMove, prev.From(), prev.To(), -bonus)
+							w.updateContHist(ply, prev, -bonus)
 						}
 					}
 					if prevMove != board.NullMove {
@@ -468,6 +491,30 @@ func (w *worker) updateHistory(color board.Color, from, to board.Square, bonus i
 	*entry += bonus - *entry*abs/maxHistory
 }
 
+// updateContHist applies a gravity-based update to continuation history tables.
+// It updates both 1-ply (opponent's previous move) and 2-ply (our previous move)
+// tables, correlating (prevPiece, prevTo) with (currPiece, currTo).
+func (w *worker) updateContHist(ply int, m board.Move, bonus int32) {
+	piece := m.Piece()
+	to := m.To()
+	abs := bonus
+	if abs < 0 {
+		abs = -abs
+	}
+	// 1-ply back: correlation with opponent's last move.
+	if prev := w.moveStack[ply]; prev != board.NullMove {
+		entry := &w.contHist[0][prev.Piece()][prev.To()][piece][to]
+		*entry += bonus - *entry*abs/maxHistory
+	}
+	// 2-ply back: correlation with our own last move.
+	if ply >= 1 {
+		if prev2 := w.moveStack[ply-1]; prev2 != board.NullMove {
+			entry := &w.contHist[1][prev2.Piece()][prev2.To()][piece][to]
+			*entry += bonus - *entry*abs/maxHistory
+		}
+	}
+}
+
 // storeKiller saves a quiet move that caused a beta cutoff.
 func (w *worker) storeKiller(m board.Move, ply int) {
 	if m != w.killers[ply][0] {
@@ -498,7 +545,7 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	// Score captures for lazy ordering.
 	var scores [256]int32
-	ScoreMoves(&ml, &scores, board.NullMove, [2]board.Move{}, board.NullMove, nil, 0, nil)
+	ScoreMoves(&ml, &scores, board.NullMove, [2]board.Move{}, board.NullMove, nil, [2]*[7][64]int32{}, 0, nil)
 
 	for i := 0; i < ml.Count; i++ {
 		// Lazy move ordering: select the best remaining capture.

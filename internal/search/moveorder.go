@@ -16,7 +16,9 @@ var mvvLva = [7][7]int{
 // ScoreMoves assigns ordering scores to each move in the move list without sorting.
 // Used with PickBest for lazy move ordering: only the next-best move is selected
 // on each iteration, avoiding a full O(n²) sort when beta cutoff happens early.
-func ScoreMoves(ml *board.MoveList, scores *[256]int32, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
+// contHist contains optional pointers to continuation history sub-tables
+// (1-ply and 2-ply back); nil entries are skipped.
+func ScoreMoves(ml *board.MoveList, scores *[256]int32, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, contHist [2]*[7][64]int32, side board.Color, pos *board.Position) {
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 		if m == hashMove {
@@ -37,6 +39,12 @@ func ScoreMoves(ml *board.MoveList, scores *[256]int32, hashMove board.Move, kil
 			scores[i] = 400_000
 		} else if history != nil {
 			scores[i] = history[side][m.From()][m.To()]
+			// Add continuation history bonuses for quiet moves.
+			for _, ch := range contHist {
+				if ch != nil {
+					scores[i] += ch[m.Piece()][m.To()]
+				}
+			}
 		}
 		if m.IsPromotion() {
 			scores[i] += 900_000
@@ -65,7 +73,7 @@ func PickBest(ml *board.MoveList, scores *[256]int32, from int) {
 // ScoreMoves + PickBest instead for lazy evaluation.
 func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
 	var scores [256]int32
-	ScoreMoves(ml, &scores, hashMove, killers, countermove, history, side, pos)
+	ScoreMoves(ml, &scores, hashMove, killers, countermove, history, [2]*[7][64]int32{}, side, pos)
 	for i := 0; i < ml.Count; i++ {
 		PickBest(ml, &scores, i)
 	}

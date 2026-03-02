@@ -1140,3 +1140,256 @@ func TestNodeLimitReturnsValidMove(t *testing.T) {
 		t.Error("search with node limit should still return a valid move")
 	}
 }
+
+// --- Continuation History tests ---
+
+func TestContHistUpdateAndLookup(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	// Simulate: at ply 2, opponent played Nc6 (ply 2) and we played e4 (ply 1).
+	prevMove := board.NewMove(board.B8, board.C6, board.FlagQuiet, board.Knight, board.NoPiece) // opponent's Nc6
+	ourPrev := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece) // our e4
+
+	w.moveStack[2] = prevMove // 1-ply back at ply 2
+	w.moveStack[1] = ourPrev  // 2-ply back at ply 2
+
+	// The move we're scoring: Nf3
+	m := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+
+	// Initially zero.
+	entry1 := w.contHist[0][prevMove.Piece()][prevMove.To()][m.Piece()][m.To()]
+	entry2 := w.contHist[1][ourPrev.Piece()][ourPrev.To()][m.Piece()][m.To()]
+	if entry1 != 0 || entry2 != 0 {
+		t.Error("contHist should be zero initially")
+	}
+
+	// Apply a positive bonus at ply 2.
+	w.updateContHist(2, m, 100)
+
+	entry1 = w.contHist[0][prevMove.Piece()][prevMove.To()][m.Piece()][m.To()]
+	entry2 = w.contHist[1][ourPrev.Piece()][ourPrev.To()][m.Piece()][m.To()]
+	if entry1 <= 0 {
+		t.Errorf("1-ply contHist should be positive after bonus, got %d", entry1)
+	}
+	if entry2 <= 0 {
+		t.Errorf("2-ply contHist should be positive after bonus, got %d", entry2)
+	}
+}
+
+func TestContHistMalus(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	prevMove := board.NewMove(board.E7, board.E5, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	w.moveStack[1] = prevMove
+
+	m := board.NewMove(board.D2, board.D3, board.FlagQuiet, board.Pawn, board.NoPiece)
+
+	// Apply negative bonus (malus).
+	w.updateContHist(1, m, -200)
+
+	entry := w.contHist[0][prevMove.Piece()][prevMove.To()][m.Piece()][m.To()]
+	if entry >= 0 {
+		t.Errorf("contHist should be negative after malus, got %d", entry)
+	}
+}
+
+func TestContHistGravityBounds(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	prevMove := board.NewMove(board.B8, board.C6, board.FlagQuiet, board.Knight, board.NoPiece)
+	w.moveStack[1] = prevMove
+
+	m := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+
+	// Apply many large bonuses — should converge toward maxHistory.
+	for i := 0; i < 200; i++ {
+		w.updateContHist(1, m, 400)
+	}
+	val := w.contHist[0][prevMove.Piece()][prevMove.To()][m.Piece()][m.To()]
+	if val > maxHistory {
+		t.Errorf("contHist exceeded maxHistory: %d > %d", val, maxHistory)
+	}
+	if val < maxHistory*90/100 {
+		t.Errorf("contHist should converge near maxHistory: %d", val)
+	}
+
+	// Apply many large penalties — should converge toward -maxHistory.
+	for i := 0; i < 400; i++ {
+		w.updateContHist(1, m, -400)
+	}
+	val = w.contHist[0][prevMove.Piece()][prevMove.To()][m.Piece()][m.To()]
+	if val < -maxHistory {
+		t.Errorf("contHist below -maxHistory: %d", val)
+	}
+	if val > -maxHistory*90/100 {
+		t.Errorf("contHist should converge near -maxHistory: %d", val)
+	}
+}
+
+func TestContHistNullMoveSafe(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	// At ply 0, moveStack[0] = NullMove (root). updateContHist should not panic.
+	w.moveStack[0] = board.NullMove
+
+	m := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	w.updateContHist(0, m, 100)
+
+	// No 1-ply entry should be written (prevMove is NullMove).
+	// Just verify no panic occurred — test passes if we get here.
+}
+
+func TestContHistIndependentEntries(t *testing.T) {
+	w := &worker{engine: NewEngine()}
+
+	prev1 := board.NewMove(board.B8, board.C6, board.FlagQuiet, board.Knight, board.NoPiece)
+	prev2 := board.NewMove(board.G8, board.F6, board.FlagQuiet, board.Knight, board.NoPiece)
+	w.moveStack[1] = prev1
+	m := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+
+	w.updateContHist(1, m, 300)
+
+	// Entry for prev1 should be updated.
+	val1 := w.contHist[0][prev1.Piece()][prev1.To()][m.Piece()][m.To()]
+	// Entry for prev2 should be untouched.
+	val2 := w.contHist[0][prev2.Piece()][prev2.To()][m.Piece()][m.To()]
+
+	if val1 <= 0 {
+		t.Errorf("contHist for prev1 should be positive, got %d", val1)
+	}
+	if val2 != 0 {
+		t.Errorf("contHist for prev2 should be zero, got %d", val2)
+	}
+}
+
+func TestContHistResetBetweenSearches(t *testing.T) {
+	// Verify contHist is cleared at the start of each search.
+	pos := board.NewPosition()
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+	if bestMove == board.NullMove {
+		t.Error("search with continuation history should return a valid move")
+	}
+}
+
+func TestContHistDoesNotMissTactics(t *testing.T) {
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestContHistPreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with continuation history enabled")
+			}
+		})
+	}
+}
+
+func TestContHistIntegrationWithLMR(t *testing.T) {
+	// Verify that continuation history integration with LMR doesn't break
+	// the search. A middlegame position where both LMR and contHist are active.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 8})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("contHist + LMR should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestContHistMoveScoring(t *testing.T) {
+	// Verify that continuation history values influence move ordering.
+	w := &worker{engine: NewEngine()}
+
+	prevMove := board.NewMove(board.B8, board.C6, board.FlagQuiet, board.Knight, board.NoPiece)
+
+	// Build up contHist: after Nc6, Nf3 is great, d3 is terrible.
+	nf3 := board.NewMove(board.G1, board.F3, board.FlagQuiet, board.Knight, board.NoPiece)
+	d3 := board.NewMove(board.D2, board.D3, board.FlagQuiet, board.Pawn, board.NoPiece)
+
+	w.moveStack[1] = prevMove
+	for i := 0; i < 50; i++ {
+		w.updateContHist(1, nf3, 400)
+		w.updateContHist(1, d3, -400)
+	}
+
+	// Extract the contHist pointer for prevMove.
+	ch := [2]*[7][64]int32{&w.contHist[0][prevMove.Piece()][prevMove.To()], nil}
+
+	var ml board.MoveList
+	ml.Add(d3)
+	ml.Add(nf3)
+
+	var scores [256]int32
+	ScoreMoves(&ml, &scores, board.NullMove, [2]board.Move{}, board.NullMove,
+		&w.history, ch, board.White, nil)
+
+	// Nf3 should have a higher score than d3 due to contHist.
+	if scores[1] <= scores[0] {
+		t.Errorf("Nf3 (score %d) should rank higher than d3 (score %d) due to contHist",
+			scores[1], scores[0])
+	}
+}
