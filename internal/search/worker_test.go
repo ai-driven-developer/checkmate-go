@@ -935,6 +935,165 @@ func TestDeltaPruningBigDelta(t *testing.T) {
 	}
 }
 
+func TestUpdateHistoryGravityBounds(t *testing.T) {
+	// Verify the gravity formula keeps values bounded in [-maxHistory, maxHistory].
+	w := &worker{engine: NewEngine()}
+
+	// Apply many large positive bonuses — should converge toward maxHistory.
+	for i := 0; i < 200; i++ {
+		w.updateHistory(board.White, board.E2, board.E4, 400)
+	}
+	val := w.history[board.White][board.E2][board.E4]
+	if val > maxHistory {
+		t.Errorf("history exceeded maxHistory: %d > %d", val, maxHistory)
+	}
+	if val < maxHistory*90/100 {
+		t.Errorf("history should converge near maxHistory: %d", val)
+	}
+
+	// Apply many large negative bonuses — should converge toward -maxHistory.
+	w.history[board.White][board.D2][board.D4] = 0
+	for i := 0; i < 200; i++ {
+		w.updateHistory(board.White, board.D2, board.D4, -400)
+	}
+	val = w.history[board.White][board.D2][board.D4]
+	if val < -maxHistory {
+		t.Errorf("history below -maxHistory: %d", val)
+	}
+	if val > -maxHistory*90/100 {
+		t.Errorf("history should converge near -maxHistory: %d", val)
+	}
+}
+
+func TestUpdateHistoryGravityDecay(t *testing.T) {
+	// A move with high history that later gets penalized should decay.
+	w := &worker{engine: NewEngine()}
+
+	// Build up positive history.
+	for i := 0; i < 50; i++ {
+		w.updateHistory(board.White, board.E2, board.E4, 400)
+	}
+	high := w.history[board.White][board.E2][board.E4]
+
+	// Apply penalties — value should decrease.
+	for i := 0; i < 50; i++ {
+		w.updateHistory(board.White, board.E2, board.E4, -400)
+	}
+	low := w.history[board.White][board.E2][board.E4]
+
+	if low >= high {
+		t.Errorf("penalties should reduce history: before=%d, after=%d", high, low)
+	}
+}
+
+func TestUpdateHistoryMalusApplied(t *testing.T) {
+	// Verify that applying bonus to one move and malus to another
+	// produces the expected signs.
+	w := &worker{engine: NewEngine()}
+
+	// Simulate: move A gets bonus, move B gets malus.
+	w.updateHistory(board.White, board.E2, board.E4, 100) // bonus
+	w.updateHistory(board.White, board.D2, board.D3, -100) // malus
+
+	if w.history[board.White][board.E2][board.E4] <= 0 {
+		t.Errorf("bonus move should have positive history, got %d",
+			w.history[board.White][board.E2][board.E4])
+	}
+	if w.history[board.White][board.D2][board.D3] >= 0 {
+		t.Errorf("malus move should have negative history, got %d",
+			w.history[board.White][board.D2][board.D3])
+	}
+}
+
+func TestHistoryGravityDoesNotMissTactics(t *testing.T) {
+	// Tactical positions must still be solved correctly with history gravity.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestHistoryGravityPreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with history gravity enabled")
+			}
+		})
+	}
+}
+
+func TestHistoryAwareLMR(t *testing.T) {
+	// Verify that history-aware LMR doesn't break the search.
+	// A middlegame position where LMR is active.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 8})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("history-aware LMR should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.

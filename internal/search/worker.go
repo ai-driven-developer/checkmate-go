@@ -361,6 +361,14 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 				if !improving {
 					reduction++
 				}
+				// History-aware LMR: reduce more for moves with bad history,
+				// reduce less for moves with good history.
+				hist := w.history[w.pos.SideToMove][m.From()][m.To()]
+				if hist < -1024 {
+					reduction++
+				} else if hist > 1024 {
+					reduction--
+				}
 				if reduction < 1 {
 					reduction = 1
 				}
@@ -407,7 +415,17 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			if alpha >= beta {
 				if !m.IsCapture() {
 					w.storeKiller(m, ply)
-					w.history[w.pos.SideToMove][m.From()][m.To()] += int32(depth * depth)
+					bonus := int32(depth * depth)
+					// History gravity: reward the cutoff move and penalize
+					// all previously searched quiet moves that failed to
+					// produce a cutoff.
+					w.updateHistory(w.pos.SideToMove, m.From(), m.To(), bonus)
+					for j := 0; j < i; j++ {
+						prev := ml.Moves[j]
+						if !prev.IsCapture() && prev != w.excludedMove {
+							w.updateHistory(w.pos.SideToMove, prev.From(), prev.To(), -bonus)
+						}
+					}
 					if prevMove != board.NullMove {
 						w.countermoves[prevMove.Piece()][prevMove.To()] = m
 					}
@@ -431,6 +449,19 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	}
 
 	return alpha
+}
+
+// updateHistory applies a gravity-based update to the history table.
+// The formula h += bonus - h*|bonus|/maxHistory ensures values stay bounded
+// in [-maxHistory, maxHistory] and converge toward maxHistory for consistently
+// good moves while decaying stale entries naturally.
+func (w *worker) updateHistory(color board.Color, from, to board.Square, bonus int32) {
+	entry := &w.history[color][from][to]
+	abs := bonus
+	if abs < 0 {
+		abs = -abs
+	}
+	*entry += bonus - *entry*abs/maxHistory
 }
 
 // storeKiller saves a quiet move that caused a beta cutoff.

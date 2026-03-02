@@ -12,6 +12,10 @@ const (
 	MateScore = 29000
 	MaxDepth  = 64
 
+	// maxHistory caps the history heuristic values. Used by the gravity
+	// formula to keep entries bounded in [-maxHistory, maxHistory].
+	maxHistory = 16384
+
 	// Delta pruning constants for quiescence search.
 	// deltaMargin is the "big delta": if standPat + deltaMargin < alpha,
 	// no capture can possibly raise alpha, so the node is pruned entirely.
