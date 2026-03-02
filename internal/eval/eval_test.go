@@ -181,3 +181,87 @@ func TestPSTMirror(t *testing.T) {
 		t.Errorf("mirror H8 should be H1, got %s", MirrorSquare(board.H8))
 	}
 }
+
+func TestPawnCacheProbeStore(t *testing.T) {
+	pc := NewPawnCache(1024)
+
+	// Miss on empty cache.
+	hit, _, _ := pc.Probe(0x12345678)
+	if hit {
+		t.Error("expected cache miss on empty cache")
+	}
+
+	// Store and probe back.
+	pc.Store(0x12345678, 42, -15)
+	hit, mg, eg := pc.Probe(0x12345678)
+	if !hit {
+		t.Error("expected cache hit after store")
+	}
+	if mg != 42 || eg != -15 {
+		t.Errorf("expected mg=42, eg=-15, got mg=%d, eg=%d", mg, eg)
+	}
+
+	// Different key should miss.
+	hit, _, _ = pc.Probe(0xAAAABBBB)
+	if hit {
+		t.Error("expected cache miss for different key")
+	}
+}
+
+func TestPawnCacheOverwrite(t *testing.T) {
+	pc := NewPawnCache(1024)
+
+	pc.Store(0xABC, 10, 20)
+	pc.Store(0xABC, 30, 40)
+
+	hit, mg, eg := pc.Probe(0xABC)
+	if !hit {
+		t.Error("expected cache hit")
+	}
+	if mg != 30 || eg != 40 {
+		t.Errorf("expected overwritten values mg=30, eg=40, got mg=%d, eg=%d", mg, eg)
+	}
+}
+
+func TestEvaluateWithCacheConsistency(t *testing.T) {
+	// EvaluateWithCache should return the same score as Evaluate (no cache).
+	positions := []string{
+		board.StartFEN,
+		"rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+		"r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+		"2r3k1/pp3ppp/2n1bn2/8/2B1P3/2N2N2/PPP2PPP/R3K2R w KQ - 4 12",
+	}
+
+	pc := NewPawnCache(4096)
+
+	for _, fen := range positions {
+		pos := &board.Position{}
+		if err := pos.SetFromFEN(fen); err != nil {
+			t.Fatalf("bad FEN %q: %v", fen, err)
+		}
+		scoreNil := Evaluate(pos)
+		scoreCache := EvaluateWithCache(pos, pc)
+
+		if scoreNil != scoreCache {
+			t.Errorf("FEN %q: Evaluate=%d, EvaluateWithCache=%d", fen, scoreNil, scoreCache)
+		}
+	}
+}
+
+func TestPawnCacheHitOnSecondCall(t *testing.T) {
+	// Calling EvaluateWithCache twice on the same position should hit the cache.
+	pos := board.NewPosition()
+	pc := NewPawnCache(4096)
+
+	score1 := EvaluateWithCache(pos, pc)
+	// The first call should have populated the cache.
+	hit, _, _ := pc.Probe(pos.PawnHash)
+	if !hit {
+		t.Error("expected pawn cache hit after first evaluation")
+	}
+
+	score2 := EvaluateWithCache(pos, pc)
+	if score1 != score2 {
+		t.Errorf("expected same score on repeated eval: %d vs %d", score1, score2)
+	}
+}

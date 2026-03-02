@@ -6,6 +6,7 @@ var (
 	ZobristCastling   [16]uint64
 	ZobristEnPassant  [65]uint64 // index 64 = NoSquare (no en passant)
 	ZobristSideToMove uint64
+	ZobristPawn       [2][64]uint64 // separate keys for pawn-only hash
 )
 
 func init() {
@@ -32,4 +33,9 @@ func init() {
 		ZobristEnPassant[i] = next()
 	}
 	ZobristSideToMove = next()
+	for color := 0; color < 2; color++ {
+		for sq := 0; sq < 64; sq++ {
+			ZobristPawn[color][sq] = next()
+		}
+	}
 }

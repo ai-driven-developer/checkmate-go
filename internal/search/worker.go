@@ -17,6 +17,7 @@ type worker struct {
 	countermoves [7][64]board.Move       // countermove heuristic [prevPiece][prevTo]
 	excludedMove board.Move              // move to skip during singular extension search
 	staticEvals  [MaxDepth]int           // static eval per ply for improving detection
+	pawnCache    *eval.PawnCache         // per-worker pawn structure cache
 
 	// Triangular PV table: pvTable[ply] holds the PV starting at that ply.
 	// Eliminates all heap allocations for PV construction in the search loop.
@@ -209,7 +210,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
 	// Static eval for pruning decisions.
-	staticEval := eval.Evaluate(&w.pos)
+	staticEval := eval.EvaluateWithCache(&w.pos, w.pawnCache)
 
 	// Track static eval per ply for improving detection.
 	if inCheck {
@@ -475,7 +476,7 @@ func (w *worker) storeKiller(m board.Move, ply int) {
 func (w *worker) quiesce(alpha, beta, ply int) int {
 	w.engine.nodes.Add(1)
 
-	standPat := eval.Evaluate(&w.pos)
+	standPat := eval.EvaluateWithCache(&w.pos, w.pawnCache)
 	if standPat >= beta {
 		return beta
 	}

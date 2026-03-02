@@ -20,8 +20,9 @@ type Position struct {
 	HalfMoveClock  uint8
 	FullMoveNumber uint16
 
-	Hash  uint64
-	Phase int // game phase (0=endgame, 24=opening), updated incrementally
+	Hash     uint64
+	PawnHash uint64 // Zobrist hash of pawns only (for pawn structure cache)
+	Phase    int    // game phase (0=endgame, 24=opening), updated incrementally
 
 	stateHistory [512]stateInfo
 	stateIdx     int
@@ -34,6 +35,7 @@ type stateInfo struct {
 	HalfMoveClock uint8
 	CapturedPiece Piece
 	Hash          uint64
+	PawnHash      uint64
 }
 
 // NewPosition returns the starting chess position.
@@ -50,6 +52,9 @@ func (p *Position) putPiece(color Color, piece Piece, sq Square) {
 	p.AllOccupied.Set(sq)
 	p.PieceOn[sq] = piece
 	p.Phase += PiecePhase[piece]
+	if piece == Pawn {
+		p.PawnHash ^= ZobristPawn[color][sq]
+	}
 }
 
 // removePiece removes a piece from the board (no validation).
@@ -59,6 +64,9 @@ func (p *Position) removePiece(color Color, piece Piece, sq Square) {
 	p.AllOccupied.Clear(sq)
 	p.PieceOn[sq] = NoPiece
 	p.Phase -= PiecePhase[piece]
+	if piece == Pawn {
+		p.PawnHash ^= ZobristPawn[color][sq]
+	}
 }
 
 // movePiece moves a piece (assumes no capture).
@@ -69,6 +77,9 @@ func (p *Position) movePiece(color Color, piece Piece, from, to Square) {
 	p.AllOccupied ^= bb
 	p.PieceOn[from] = NoPiece
 	p.PieceOn[to] = piece
+	if piece == Pawn {
+		p.PawnHash ^= ZobristPawn[color][from] ^ ZobristPawn[color][to]
+	}
 }
 
 // PieceAt returns the piece type and color on a square.
@@ -92,6 +103,19 @@ func (p *Position) ColorPieces(c Color, piece Piece) Bitboard {
 // KingSquare returns the square of the king for a given color.
 func (p *Position) KingSquare(c Color) Square {
 	return p.Pieces[c][King].LSB()
+}
+
+// computePawnHash computes the pawn Zobrist hash from scratch.
+func (p *Position) computePawnHash() uint64 {
+	var h uint64
+	for color := Color(0); color <= 1; color++ {
+		bb := p.Pieces[color][Pawn]
+		for bb != 0 {
+			sq := bb.PopLSB()
+			h ^= ZobristPawn[color][sq]
+		}
+	}
+	return h
 }
 
 // computeHash computes the Zobrist hash from scratch.
@@ -134,6 +158,7 @@ func (p *Position) MakeMove(m Move) {
 		HalfMoveClock: p.HalfMoveClock,
 		CapturedPiece: m.CapturedPiece(),
 		Hash:          p.Hash,
+		PawnHash:      p.PawnHash,
 	}
 	p.stateIdx++
 
@@ -316,6 +341,7 @@ func (p *Position) UnmakeMove(m Move) {
 	p.EnPassant = state.EnPassant
 	p.HalfMoveClock = state.HalfMoveClock
 	p.Hash = state.Hash
+	p.PawnHash = state.PawnHash
 
 	if us == Black {
 		p.FullMoveNumber--

@@ -18,12 +18,36 @@ const (
 // Positive = good for side to move. Uses tapered evaluation to interpolate
 // between middlegame and endgame scores based on remaining material.
 func Evaluate(pos *board.Position) int {
+	return EvaluateWithCache(pos, nil)
+}
+
+// EvaluateWithCache is like Evaluate but uses a pawn cache to avoid
+// recomputing pawn structure and passed pawn scores when the pawn
+// configuration hasn't changed.
+func EvaluateWithCache(pos *board.Position, pc *PawnCache) int {
 	mat := materialBalance(pos)
 	mob := mobilityScore(pos)
 	mgPST, egPST := pstBalanceTapered(pos)
-	mgPP, egPP := passedPawnScore(pos)
-	mgPS, egPS := pawnStructureScore(pos)
 	mgKS, egKS := kingSafetyScore(pos)
+
+	var mgPP, egPP, mgPS, egPS int
+	if pc != nil {
+		if hit, cmg, ceg := pc.Probe(pos.PawnHash); hit {
+			// Cache hit: combined pawn structure + passed pawn scores.
+			mgPP = int(cmg) // packed: pawnStruct.mg + passedPawn.mg
+			egPP = int(ceg)
+			mgPS, egPS = 0, 0
+		} else {
+			mgPP, egPP = passedPawnScore(pos)
+			mgPS, egPS = pawnStructureScore(pos)
+			pc.Store(pos.PawnHash, int16(mgPP+mgPS), int16(egPP+egPS))
+			mgPP, egPP = mgPP+mgPS, egPP+egPS
+			mgPS, egPS = 0, 0
+		}
+	} else {
+		mgPP, egPP = passedPawnScore(pos)
+		mgPS, egPS = pawnStructureScore(pos)
+	}
 
 	phase := pos.Phase
 	// Tapered score: interpolate between MG and EG.

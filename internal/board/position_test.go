@@ -282,3 +282,91 @@ func TestZobristHashConsistency(t *testing.T) {
 		t.Error("hash not restored after unmake e7e5")
 	}
 }
+
+func TestPawnHashIncrementalConsistency(t *testing.T) {
+	p := NewPosition()
+	origPawnHash := p.PawnHash
+
+	// Verify initial PawnHash matches recomputed.
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("initial PawnHash doesn't match recomputed")
+	}
+
+	// Pawn move: e2-e4 should change PawnHash.
+	m1 := NewMove(E2, E4, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m1)
+	if p.PawnHash == origPawnHash {
+		t.Error("PawnHash should change after pawn move")
+	}
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("incremental PawnHash doesn't match recomputed after e2e4")
+	}
+
+	ph1 := p.PawnHash
+
+	// Another pawn move: e7-e5.
+	m2 := NewMove(E7, E5, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m2)
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("incremental PawnHash doesn't match recomputed after e7e5")
+	}
+
+	// Unmake should restore PawnHash.
+	p.UnmakeMove(m2)
+	if p.PawnHash != ph1 {
+		t.Error("PawnHash not restored after unmake e7e5")
+	}
+
+	p.UnmakeMove(m1)
+	if p.PawnHash != origPawnHash {
+		t.Error("PawnHash not restored after unmake e2e4")
+	}
+}
+
+func TestPawnHashNonPawnMoveUnchanged(t *testing.T) {
+	p := NewPosition()
+
+	// Nf3 — a knight move should NOT change PawnHash.
+	m := NewMove(G1, F3, FlagQuiet, Knight, NoPiece)
+	before := p.PawnHash
+	p.MakeMove(m)
+
+	if p.PawnHash != before {
+		t.Error("PawnHash should not change on knight move")
+	}
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("PawnHash inconsistent after knight move")
+	}
+
+	p.UnmakeMove(m)
+	if p.PawnHash != before {
+		t.Error("PawnHash not restored after unmake knight move")
+	}
+}
+
+func TestPawnHashCaptureConsistency(t *testing.T) {
+	// Setup a position where a pawn capture is possible.
+	p := &Position{}
+	_ = p.SetFromFEN("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
+
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("PawnHash doesn't match recomputed from FEN")
+	}
+
+	// exd5 — pawn captures pawn.
+	m := NewMove(E4, D5, FlagCapture, Pawn, Pawn)
+	before := p.PawnHash
+	p.MakeMove(m)
+
+	if p.PawnHash == before {
+		t.Error("PawnHash should change on pawn capture")
+	}
+	if p.PawnHash != p.computePawnHash() {
+		t.Error("PawnHash inconsistent after pawn capture")
+	}
+
+	p.UnmakeMove(m)
+	if p.PawnHash != before {
+		t.Error("PawnHash not restored after unmake pawn capture")
+	}
+}

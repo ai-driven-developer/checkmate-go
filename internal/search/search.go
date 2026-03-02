@@ -2,6 +2,7 @@ package search
 
 import (
 	"checkmatego/internal/board"
+	"checkmatego/internal/eval"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -131,9 +132,10 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 		go func(id int) {
 			defer wg.Done()
 			w := &worker{
-				engine: e,
-				pos:    *pos,
-				id:     id,
+				engine:    e,
+				pos:       *pos,
+				id:        id,
+				pawnCache: eval.NewPawnCache(16384),
 			}
 			results[id] = w.search(maxDepth)
 		}(i)

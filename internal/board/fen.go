@@ -107,6 +107,7 @@ func (p *Position) SetFromFEN(fen string) error {
 	}
 
 	p.Hash = p.computeHash()
+	p.PawnHash = p.computePawnHash()
 	return nil
 }
 
