@@ -13,16 +13,10 @@ var mvvLva = [7][7]int{
 	{0, 0, 0, 0, 0, 0, 0},       // King victim
 }
 
-// OrderMoves sorts the move list. If hashMove is not NullMove, it gets
-// highest priority. Captures are ordered by MVV-LVA, with losing captures
-// (negative SEE) demoted below quiet moves. Killer moves are ordered
-// between good captures and plain quiet moves. The countermove (a quiet
-// move that refuted the opponent's previous move) is tried after killers.
-// Remaining quiet moves are ordered by history heuristic scores.
-// When pos is non-nil, SEE is used to distinguish good and bad captures.
-// Uses insertion sort (optimal for ~30-50 moves).
-func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
-	var scores [256]int32
+// ScoreMoves assigns ordering scores to each move in the move list without sorting.
+// Used with PickBest for lazy move ordering: only the next-best move is selected
+// on each iteration, avoiding a full O(n²) sort when beta cutoff happens early.
+func ScoreMoves(ml *board.MoveList, scores *[256]int32, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
 	for i := 0; i < ml.Count; i++ {
 		m := ml.Moves[i]
 		if m == hashMove {
@@ -48,11 +42,31 @@ func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, 
 			scores[i] += 900_000
 		}
 	}
-	// Insertion sort descending.
-	for i := 1; i < ml.Count; i++ {
-		for j := i; j > 0 && scores[j] > scores[j-1]; j-- {
-			ml.Moves[j], ml.Moves[j-1] = ml.Moves[j-1], ml.Moves[j]
-			scores[j], scores[j-1] = scores[j-1], scores[j]
+}
+
+// PickBest finds the highest-scored move in [from, count) and swaps it into
+// position 'from'. This implements lazy selection sort: O(n) per call, but
+// only invoked for the moves actually searched before a cutoff.
+func PickBest(ml *board.MoveList, scores *[256]int32, from int) {
+	best := from
+	for j := from + 1; j < ml.Count; j++ {
+		if scores[j] > scores[best] {
+			best = j
 		}
+	}
+	if best != from {
+		ml.Moves[from], ml.Moves[best] = ml.Moves[best], ml.Moves[from]
+		scores[from], scores[best] = scores[best], scores[from]
+	}
+}
+
+// OrderMoves scores and fully sorts the move list. Used in contexts where
+// all moves will be examined (tests, simple callers). The search loop uses
+// ScoreMoves + PickBest instead for lazy evaluation.
+func OrderMoves(ml *board.MoveList, hashMove board.Move, killers [2]board.Move, countermove board.Move, history *[2][64][64]int32, side board.Color, pos *board.Position) {
+	var scores [256]int32
+	ScoreMoves(ml, &scores, hashMove, killers, countermove, history, side, pos)
+	for i := 0; i < ml.Count; i++ {
+		PickBest(ml, &scores, i)
 	}
 }

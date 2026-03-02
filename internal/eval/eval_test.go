@@ -50,9 +50,8 @@ func TestEvalMaterialBalance(t *testing.T) {
 
 func TestGamePhaseStartPosition(t *testing.T) {
 	pos := board.NewPosition()
-	phase := gamePhase(pos)
-	if phase != totalPhase {
-		t.Errorf("start position should have full phase (%d), got %d", totalPhase, phase)
+	if pos.Phase != totalPhase {
+		t.Errorf("start position should have full phase (%d), got %d", totalPhase, pos.Phase)
 	}
 }
 
@@ -60,9 +59,8 @@ func TestGamePhaseEndgame(t *testing.T) {
 	// Kings and pawns only — phase should be 0.
 	pos := &board.Position{}
 	_ = pos.SetFromFEN("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1")
-	phase := gamePhase(pos)
-	if phase != 0 {
-		t.Errorf("K+P endgame should have phase 0, got %d", phase)
+	if pos.Phase != 0 {
+		t.Errorf("K+P endgame should have phase 0, got %d", pos.Phase)
 	}
 }
 

@@ -17,6 +17,11 @@ type worker struct {
 	countermoves [7][64]board.Move       // countermove heuristic [prevPiece][prevTo]
 	excludedMove board.Move              // move to skip during singular extension search
 	staticEvals  [MaxDepth]int           // static eval per ply for improving detection
+
+	// Triangular PV table: pvTable[ply] holds the PV starting at that ply.
+	// Eliminates all heap allocations for PV construction in the search loop.
+	pvTable  [MaxDepth][MaxDepth]board.Move
+	pvLength [MaxDepth]int
 }
 
 // workerResult holds the outcome of a worker's search.
@@ -24,6 +29,17 @@ type workerResult struct {
 	move  board.Move
 	score int
 	depth int
+}
+
+// getPV returns the root PV as a slice (allocates once for info reporting).
+func (w *worker) getPV() []board.Move {
+	n := w.pvLength[0]
+	if n <= 0 {
+		return nil
+	}
+	pv := make([]board.Move, n)
+	copy(pv, w.pvTable[0][:n])
+	return pv
 }
 
 func (w *worker) search(maxDepth int) workerResult {
@@ -45,10 +61,9 @@ func (w *worker) search(maxDepth int) workerResult {
 		}
 
 		var score int
-		var pv []board.Move
 
 		for {
-			score, pv = w.negamax(depth, alpha, beta, 0, true, board.NullMove)
+			score = w.negamax(depth, alpha, beta, 0, true, board.NullMove)
 			if w.shouldStop() && depth > 1 {
 				break
 			}
@@ -77,8 +92,8 @@ func (w *worker) search(maxDepth int) workerResult {
 
 		prevScore = score
 
-		if len(pv) > 0 {
-			result.move = pv[0]
+		if w.pvLength[0] > 0 {
+			result.move = w.pvTable[0][0]
 			result.score = score
 			result.depth = depth
 		}
@@ -89,7 +104,7 @@ func (w *worker) search(maxDepth int) workerResult {
 				Score:    score,
 				Nodes:    w.engine.nodes.Load(),
 				Time:     time.Since(w.engine.start),
-				PV:       pv,
+				PV:       w.getPV(),
 				Hashfull: w.engine.tt.Hashfull(),
 			})
 		}
@@ -119,28 +134,31 @@ func (w *worker) shouldStop() bool {
 	return false
 }
 
-func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove board.Move) (int, []board.Move) {
+func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove board.Move) int {
 	// Check time every 4096 nodes.
 	if w.engine.nodes.Load()&4095 == 0 && ply > 0 {
 		if w.shouldStop() {
-			return 0, nil
+			return 0
 		}
 	}
 
+	// Initialize PV length for this ply.
+	w.pvLength[ply] = 0
+
 	if depth <= 0 {
-		return w.quiesce(alpha, beta, ply), nil
+		return w.quiesce(alpha, beta, ply)
 	}
 
 	w.engine.nodes.Add(1)
 
 	// 50-move rule.
 	if w.pos.HalfMoveClock >= 100 {
-		return 0, nil
+		return 0
 	}
 
 	// Repetition detection (2-fold: draw if position seen before).
 	if ply > 0 && w.pos.IsRepetition() {
-		return 0, nil
+		return 0
 	}
 
 	// TT probe.
@@ -167,14 +185,16 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			score := scoreFromTT(ttScore, ply)
 			switch ttBound {
 			case BoundExact:
-				return score, []board.Move{ttMove}
+				w.pvTable[ply][0] = ttMove
+				w.pvLength[ply] = 1
+				return score
 			case BoundLower:
 				if score >= beta {
-					return score, []board.Move{ttMove}
+					return score
 				}
 			case BoundUpper:
 				if score <= alpha {
-					return score, nil
+					return score
 				}
 			}
 		}
@@ -209,11 +229,10 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			R++
 		}
 		w.pos.MakeNullMove()
-		nullScore, _ := w.negamax(depth-1-R, -beta, -beta+1, ply+1, false, board.NullMove)
-		nullScore = -nullScore
+		nullScore := -w.negamax(depth-1-R, -beta, -beta+1, ply+1, false, board.NullMove)
 		w.pos.UnmakeNullMove()
 		if nullScore >= beta {
-			return beta, nil
+			return beta
 		}
 	}
 
@@ -225,7 +244,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			margin = depth * 60
 		}
 		if staticEval-margin >= beta {
-			return staticEval, nil
+			return staticEval
 		}
 	}
 
@@ -247,9 +266,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 
 	if ml.Count == 0 {
 		if inCheck {
-			return -MateScore + ply, nil // checkmate
+			return -MateScore + ply // checkmate
 		}
-		return 0, nil // stalemate
+		return 0 // stalemate
 	}
 
 	// Look up countermove for the opponent's previous move.
@@ -258,7 +277,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		countermove = w.countermoves[prevMove.Piece()][prevMove.To()]
 	}
 
-	OrderMoves(&ml, hashMove, w.killers[ply], countermove, &w.history, w.pos.SideToMove, &w.pos)
+	// Score moves for lazy ordering (pick-best on each iteration).
+	var scores [256]int32
+	ScoreMoves(&ml, &scores, hashMove, w.killers[ply], countermove, &w.history, w.pos.SideToMove, &w.pos)
 
 	// Late move pruning thresholds: maximum quiet move index per depth.
 	var lmpThresholds [4]int
@@ -271,9 +292,10 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	origAlpha := alpha
 	bestScore := -Infinity
 	bestMove := board.NullMove
-	var bestPV []board.Move
 
 	for i := 0; i < ml.Count; i++ {
+		// Lazy move ordering: select the best remaining move.
+		PickBest(&ml, &scores, i)
 		m := ml.Moves[i]
 
 		// Skip excluded move during singular extension verification search.
@@ -311,7 +333,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 
 			w.pos.UnmakeMove(m)
 			w.excludedMove = m
-			seScore, _ := w.negamax(sDepth, sBeta-1, sBeta, ply, false, prevMove)
+			seScore := w.negamax(sDepth, sBeta-1, sBeta, ply, false, prevMove)
 			w.excludedMove = board.NullMove
 			w.pos.MakeMove(m)
 
@@ -323,12 +345,10 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		newDepth := depth - 1 + extension
 
 		var score int
-		var childPV []board.Move
 
 		if i == 0 {
 			// First move: search with full window.
-			score, childPV = w.negamax(newDepth, -beta, -alpha, ply+1, true, m)
-			score = -score
+			score = -w.negamax(newDepth, -beta, -alpha, ply+1, true, m)
 		} else {
 			// Late Move Reduction: reduce depth for quiet late moves.
 			reduction := 0
@@ -351,26 +371,23 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			}
 
 			// PVS: zero-window search (possibly with LMR reduction).
-			score, _ = w.negamax(newDepth-reduction, -alpha-1, -alpha, ply+1, true, m)
-			score = -score
+			score = -w.negamax(newDepth-reduction, -alpha-1, -alpha, ply+1, true, m)
 
 			// Re-search at full depth if reduced search beats alpha.
 			if score > alpha && reduction > 0 {
-				score, _ = w.negamax(newDepth, -alpha-1, -alpha, ply+1, true, m)
-				score = -score
+				score = -w.negamax(newDepth, -alpha-1, -alpha, ply+1, true, m)
 			}
 
 			// Full window re-search if zero-window search found a better move.
 			if score > alpha && score < beta {
-				score, childPV = w.negamax(newDepth, -beta, -alpha, ply+1, true, m)
-				score = -score
+				score = -w.negamax(newDepth, -beta, -alpha, ply+1, true, m)
 			}
 		}
 
 		w.pos.UnmakeMove(m)
 
 		if w.shouldStop() && ply > 0 {
-			return 0, nil
+			return 0
 		}
 
 		if score > bestScore {
@@ -380,9 +397,13 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 
 		if score > alpha {
 			alpha = score
-			bestPV = make([]board.Move, 1+len(childPV))
-			bestPV[0] = m
-			copy(bestPV[1:], childPV)
+
+			// Update PV: current move + child PV.
+			w.pvTable[ply][0] = m
+			childLen := w.pvLength[ply+1]
+			copy(w.pvTable[ply][1:1+childLen], w.pvTable[ply+1][:childLen])
+			w.pvLength[ply] = 1 + childLen
+
 			if alpha >= beta {
 				if !m.IsCapture() {
 					w.storeKiller(m, ply)
@@ -409,7 +430,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		tt.Store(hash, bestMove, scoreToTT(bestScore, ply), int8(depth), bound)
 	}
 
-	return alpha, bestPV
+	return alpha
 }
 
 // storeKiller saves a quiet move that caused a beta cutoff.
@@ -433,9 +454,14 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
-	OrderMoves(&ml, board.NullMove, [2]board.Move{}, board.NullMove, nil, 0, nil)
+
+	// Score captures for lazy ordering.
+	var scores [256]int32
+	ScoreMoves(&ml, &scores, board.NullMove, [2]board.Move{}, board.NullMove, nil, 0, nil)
 
 	for i := 0; i < ml.Count; i++ {
+		// Lazy move ordering: select the best remaining capture.
+		PickBest(&ml, &scores, i)
 		m := ml.Moves[i]
 
 		// SEE pruning: skip captures that lose material.

@@ -2,6 +2,10 @@ package board
 
 import "fmt"
 
+// PiecePhase maps piece types to their game-phase contribution.
+// Used for incremental phase tracking (avoids recomputing popcount every eval).
+var PiecePhase = [7]int{0, 0, 1, 1, 2, 4, 0} // NoPiece, Pawn, Knight, Bishop, Rook, Queen, King
+
 // Position holds the complete game state.
 type Position struct {
 	Pieces      [2][7]Bitboard // [color][piece]
@@ -16,9 +20,11 @@ type Position struct {
 	HalfMoveClock  uint8
 	FullMoveNumber uint16
 
-	Hash uint64
+	Hash  uint64
+	Phase int // game phase (0=endgame, 24=opening), updated incrementally
 
-	stateHistory []stateInfo
+	stateHistory [512]stateInfo
+	stateIdx     int
 }
 
 // stateInfo stores irreversible state for UnmakeMove.
@@ -43,6 +49,7 @@ func (p *Position) putPiece(color Color, piece Piece, sq Square) {
 	p.Occupied[color].Set(sq)
 	p.AllOccupied.Set(sq)
 	p.PieceOn[sq] = piece
+	p.Phase += PiecePhase[piece]
 }
 
 // removePiece removes a piece from the board (no validation).
@@ -51,6 +58,7 @@ func (p *Position) removePiece(color Color, piece Piece, sq Square) {
 	p.Occupied[color].Clear(sq)
 	p.AllOccupied.Clear(sq)
 	p.PieceOn[sq] = NoPiece
+	p.Phase -= PiecePhase[piece]
 }
 
 // movePiece moves a piece (assumes no capture).
@@ -120,13 +128,14 @@ func (p *Position) recomputeOccupied() {
 // MakeMove applies a move to the position. Pushes state for UnmakeMove.
 func (p *Position) MakeMove(m Move) {
 	// Save irreversible state.
-	p.stateHistory = append(p.stateHistory, stateInfo{
+	p.stateHistory[p.stateIdx] = stateInfo{
 		Castling:      p.Castling,
 		EnPassant:     p.EnPassant,
 		HalfMoveClock: p.HalfMoveClock,
 		CapturedPiece: m.CapturedPiece(),
 		Hash:          p.Hash,
-	})
+	}
+	p.stateIdx++
 
 	from := m.From()
 	to := m.To()
@@ -241,9 +250,8 @@ func (p *Position) MakeMove(m Move) {
 // UnmakeMove restores the position to before the last MakeMove.
 func (p *Position) UnmakeMove(m Move) {
 	// Pop state.
-	idx := len(p.stateHistory) - 1
-	state := p.stateHistory[idx]
-	p.stateHistory = p.stateHistory[:idx]
+	p.stateIdx--
+	state := p.stateHistory[p.stateIdx]
 
 	// Flip side back.
 	p.SideToMove = p.SideToMove.Other()
@@ -316,13 +324,14 @@ func (p *Position) UnmakeMove(m Move) {
 
 // MakeNullMove passes the turn without making a move (for null-move pruning).
 func (p *Position) MakeNullMove() {
-	p.stateHistory = append(p.stateHistory, stateInfo{
+	p.stateHistory[p.stateIdx] = stateInfo{
 		Castling:      p.Castling,
 		EnPassant:     p.EnPassant,
 		HalfMoveClock: p.HalfMoveClock,
 		CapturedPiece: NoPiece,
 		Hash:          p.Hash,
-	})
+	}
+	p.stateIdx++
 	p.Hash ^= ZobristEnPassant[p.EnPassant]
 	p.EnPassant = NoSquare
 	p.Hash ^= ZobristEnPassant[NoSquare]
@@ -333,9 +342,8 @@ func (p *Position) MakeNullMove() {
 
 // UnmakeNullMove restores the position to before the last MakeNullMove.
 func (p *Position) UnmakeNullMove() {
-	idx := len(p.stateHistory) - 1
-	state := p.stateHistory[idx]
-	p.stateHistory = p.stateHistory[:idx]
+	p.stateIdx--
+	state := p.stateHistory[p.stateIdx]
 	p.SideToMove = p.SideToMove.Other()
 	p.Castling = state.Castling
 	p.EnPassant = state.EnPassant
@@ -350,7 +358,7 @@ func (p *Position) UnmakeNullMove() {
 // appeared at least twice total (once before + once now).
 func (p *Position) IsRepetition() bool {
 	h := p.Hash
-	limit := len(p.stateHistory)
+	limit := p.stateIdx
 	start := limit - int(p.HalfMoveClock)
 	if start < 0 {
 		start = 0
@@ -367,8 +375,6 @@ func (p *Position) IsRepetition() bool {
 // Copy returns a deep copy of the position (for concurrent use).
 func (p *Position) Copy() *Position {
 	cp := *p
-	cp.stateHistory = make([]stateInfo, len(p.stateHistory))
-	copy(cp.stateHistory, p.stateHistory)
 	return &cp
 }
 
