@@ -452,6 +452,12 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 		alpha = standPat
 	}
 
+	// Big delta pruning: if even capturing a queen cannot raise alpha,
+	// this position is hopeless — prune immediately.
+	if standPat+deltaMargin < alpha {
+		return alpha
+	}
+
 	var ml board.MoveList
 	movegen.GenerateCaptures(&w.pos, &ml)
 
@@ -463,6 +469,15 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 		// Lazy move ordering: select the best remaining capture.
 		PickBest(&ml, &scores, i)
 		m := ml.Moves[i]
+
+		// Per-move delta pruning: if this capture's potential gain
+		// cannot raise alpha, skip it without making the move.
+		if !m.IsPromotion() {
+			captureVal := seeValue[m.CapturedPiece()]
+			if standPat+captureVal+deltaPruningMargin < alpha {
+				continue
+			}
+		}
 
 		// SEE pruning: skip captures that lose material.
 		if SEE(&w.pos, m) < 0 {

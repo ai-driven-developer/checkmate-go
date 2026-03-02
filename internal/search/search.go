@@ -11,6 +11,17 @@ const (
 	Infinity  = 30000
 	MateScore = 29000
 	MaxDepth  = 64
+
+	// Delta pruning constants for quiescence search.
+	// deltaMargin is the "big delta": if standPat + deltaMargin < alpha,
+	// no capture can possibly raise alpha, so the node is pruned entirely.
+	// Set to queen value (900) + a safety margin (200) for positional swings.
+	deltaMargin = 1100
+
+	// deltaPruningMargin is the per-move margin added to the captured piece
+	// value. If standPat + captureValue + deltaPruningMargin < alpha,
+	// that individual capture is skipped.
+	deltaPruningMargin = 200
 )
 
 // SearchLimits defines constraints on the search.

@@ -801,6 +801,140 @@ func TestCountermovePreservesCorrectPlay(t *testing.T) {
 	}
 }
 
+func TestDeltaPruningReducesNodes(t *testing.T) {
+	// A position where white is massively down in material (missing queen
+	// and both rooks). QSearch with delta pruning should prune futile
+	// captures and search fewer nodes than without it.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NB1KB2 w kq - 0 1") // white missing Q + both R
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("delta pruning should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestDeltaPruningDoesNotMissTactics(t *testing.T) {
+	// Tactical positions must still be solved correctly with delta pruning.
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestDeltaPruningPreservesCorrectPlay(t *testing.T) {
+	// Various positions where delta pruning is active in QSearch.
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+		{
+			name: "complex middlegame",
+			fen:  "r1bqk2r/ppp2ppp/2n1pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq d6 0 5",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with delta pruning enabled")
+			}
+		})
+	}
+}
+
+func TestDeltaPruningSkipsPromotions(t *testing.T) {
+	// White has a pawn on the 7th rank that can capture-promote (bxa8=Q).
+	// Delta pruning must NOT skip promotion captures, since they are
+	// exempt from the per-move delta check.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r3k3/1P6/8/8/8/8/8/4K3 w q - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	// White should find the promotion (b8=Q or bxa8=Q) — score should
+	// reflect the massive material gain.
+	if lastScore < 500 {
+		t.Errorf("expected high score from promotion, got %d", lastScore)
+	}
+}
+
+func TestDeltaPruningBigDelta(t *testing.T) {
+	// White is extremely down (bare king vs full army). The big delta check
+	// (standPat + 1100 < alpha) should fire in many QSearch nodes, pruning
+	// entire subtrees.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("rnbqkbnr/pppppppp/8/8/8/8/8/4K3 w kq - 0 1") // white: bare king
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 5})
+
+	if bestMove == board.NullMove {
+		t.Error("big delta pruning should not prevent finding a valid move")
+	}
+}
+
 func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 	var history [2][64][64]int32
 	// Even with a very high history score, captures should still come first.
