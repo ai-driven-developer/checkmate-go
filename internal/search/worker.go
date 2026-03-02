@@ -129,6 +129,9 @@ func (w *worker) shouldStop() bool {
 	if w.engine.stopFlag.Load() {
 		return true
 	}
+	if w.engine.limits.Nodes > 0 && w.engine.nodes.Load() >= w.engine.limits.Nodes {
+		return true
+	}
 	if !w.engine.limits.Infinite && w.engine.limits.Depth == 0 {
 		return w.engine.tm.shouldStopHard()
 	}

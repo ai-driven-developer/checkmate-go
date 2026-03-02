@@ -23,6 +23,8 @@ type Position struct {
 	Hash     uint64
 	PawnHash uint64 // Zobrist hash of pawns only (for pawn structure cache)
 	Phase    int    // game phase (0=endgame, 24=opening), updated incrementally
+	PSTMG    int    // incremental middlegame PST score (from White's perspective)
+	PSTEG    int    // incremental endgame PST score (from White's perspective)
 
 	stateHistory [512]stateInfo
 	stateIdx     int
@@ -55,6 +57,13 @@ func (p *Position) putPiece(color Color, piece Piece, sq Square) {
 	if piece == Pawn {
 		p.PawnHash ^= ZobristPawn[color][sq]
 	}
+	if color == White {
+		p.PSTMG += PiecePSTMG[piece][sq]
+		p.PSTEG += PiecePSTEG[piece][sq]
+	} else {
+		p.PSTMG -= PiecePSTMG[piece][sq^56]
+		p.PSTEG -= PiecePSTEG[piece][sq^56]
+	}
 }
 
 // removePiece removes a piece from the board (no validation).
@@ -66,6 +75,13 @@ func (p *Position) removePiece(color Color, piece Piece, sq Square) {
 	p.Phase -= PiecePhase[piece]
 	if piece == Pawn {
 		p.PawnHash ^= ZobristPawn[color][sq]
+	}
+	if color == White {
+		p.PSTMG -= PiecePSTMG[piece][sq]
+		p.PSTEG -= PiecePSTEG[piece][sq]
+	} else {
+		p.PSTMG += PiecePSTMG[piece][sq^56]
+		p.PSTEG += PiecePSTEG[piece][sq^56]
 	}
 }
 
@@ -79,6 +95,13 @@ func (p *Position) movePiece(color Color, piece Piece, from, to Square) {
 	p.PieceOn[to] = piece
 	if piece == Pawn {
 		p.PawnHash ^= ZobristPawn[color][from] ^ ZobristPawn[color][to]
+	}
+	if color == White {
+		p.PSTMG += PiecePSTMG[piece][to] - PiecePSTMG[piece][from]
+		p.PSTEG += PiecePSTEG[piece][to] - PiecePSTEG[piece][from]
+	} else {
+		p.PSTMG -= PiecePSTMG[piece][to^56] - PiecePSTMG[piece][from^56]
+		p.PSTEG -= PiecePSTEG[piece][to^56] - PiecePSTEG[piece][from^56]
 	}
 }
 

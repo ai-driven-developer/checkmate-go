@@ -4,7 +4,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 
 ## Features
 
-- **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups, incremental pawn Zobrist hash
+- **Board representation:** bitboard + mailbox hybrid for fast move generation and piece lookups, incremental pawn Zobrist hash, incremental piece-square table scores
 - **Move encoding:** compact 32-bit representation (from/to/flags/piece/captured)
 - **Move generation:** magic bitboards generated at runtime; full support for castling, en passant, and promotions
 - **Search:** iterative deepening with principal variation search (PVS), aspiration windows, null-move pruning, internal iterative reductions (IIR), reverse futility pruning, futility pruning, late move pruning, late move reductions, improving heuristic, check extensions, singular extensions, and quiescence search with SEE pruning and delta pruning
@@ -88,10 +88,10 @@ make test
 
 The test suite includes 165+ tests covering:
 
-- **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing, pawn hash incremental consistency
+- **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing, pawn hash incremental consistency, incremental PST consistency (quiet moves, captures, castling, promotions, en passant)
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
-- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification)
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
+- **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, 50-move rule, null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL), time control modes, move parsing with promotions and castling, WDL output
 
 ## Benchmarks
@@ -113,7 +113,7 @@ make perft
 ```
 cmd/checkmatego/       Entry point
 internal/
-  board/               Position, bitboards, moves, FEN, Zobrist hashing
+  board/               Position, bitboards, moves, FEN, Zobrist hashing, incremental PST
   movegen/             Legal move generation, magic bitboards, perft
   eval/                Tapered evaluation (material + PST + mobility + passed pawns + pawn structure + king safety, MG/EG interpolation), per-worker pawn hash table
   search/              PVS, quiescence, TT, move ordering, SEE, killer moves, countermove heuristic, history heuristic (gravity), LMR (history-aware), null-move pruning, IIR, reverse futility pruning, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP

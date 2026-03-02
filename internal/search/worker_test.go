@@ -1112,3 +1112,31 @@ func TestHistoryDoesNotOverrideCaptures(t *testing.T) {
 		t.Error("capture should still come before quiet move with high history score")
 	}
 }
+
+func TestNodeLimitStopsSearch(t *testing.T) {
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	// Search with a very small node limit.
+	limits := SearchLimits{Nodes: 500}
+	e.Search(pos, limits)
+
+	nodes := e.nodes.Load()
+	// Allow some overhead (nodes checked every 4096 ops, but each check happens
+	// after incrementing, so we allow a generous margin).
+	if nodes > 5000 {
+		t.Errorf("node limit 500 exceeded significantly: got %d nodes", nodes)
+	}
+}
+
+func TestNodeLimitReturnsValidMove(t *testing.T) {
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	limits := SearchLimits{Nodes: 1000}
+	bestMove := e.Search(pos, limits)
+
+	if bestMove == board.NullMove {
+		t.Error("search with node limit should still return a valid move")
+	}
+}

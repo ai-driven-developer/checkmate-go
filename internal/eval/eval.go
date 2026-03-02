@@ -27,7 +27,7 @@ func Evaluate(pos *board.Position) int {
 func EvaluateWithCache(pos *board.Position, pc *PawnCache) int {
 	mat := materialBalance(pos)
 	mob := mobilityScore(pos)
-	mgPST, egPST := pstBalanceTapered(pos)
+	mgPST, egPST := pos.PSTMG, pos.PSTEG
 	mgKS, egKS := kingSafetyScore(pos)
 
 	var mgPP, egPP, mgPS, egPS int

@@ -248,6 +248,29 @@ func TestEvaluateWithCacheConsistency(t *testing.T) {
 	}
 }
 
+func TestIncrementalPSTMatchesFromScratch(t *testing.T) {
+	// The incremental PST in Position must match pstBalanceTapered for various positions.
+	positions := []string{
+		board.StartFEN,
+		"rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+		"r1bqkbnr/pppppppp/2n5/8/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 2 2",
+		"r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1",
+		"8/4P3/8/8/8/8/8/4K2k w - - 0 1",
+		"4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1",
+	}
+	for _, fen := range positions {
+		pos := &board.Position{}
+		if err := pos.SetFromFEN(fen); err != nil {
+			t.Fatalf("bad FEN %q: %v", fen, err)
+		}
+		wantMG, wantEG := pstBalanceTapered(pos)
+		if pos.PSTMG != wantMG || pos.PSTEG != wantEG {
+			t.Errorf("FEN %q: incremental mg=%d eg=%d, from-scratch mg=%d eg=%d",
+				fen, pos.PSTMG, pos.PSTEG, wantMG, wantEG)
+		}
+	}
+}
+
 func TestPawnCacheHitOnSecondCall(t *testing.T) {
 	// Calling EvaluateWithCache twice on the same position should hit the cache.
 	pos := board.NewPosition()

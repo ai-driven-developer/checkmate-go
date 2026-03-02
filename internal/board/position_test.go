@@ -370,3 +370,161 @@ func TestPawnHashCaptureConsistency(t *testing.T) {
 		t.Error("PawnHash not restored after unmake pawn capture")
 	}
 }
+
+// computePST recomputes PST scores from scratch for verification.
+func computePST(p *Position) (mg, eg int) {
+	for piece := Pawn; piece <= King; piece++ {
+		bb := p.Pieces[White][piece]
+		for bb != 0 {
+			sq := bb.PopLSB()
+			mg += PiecePSTMG[piece][sq]
+			eg += PiecePSTEG[piece][sq]
+		}
+		bb = p.Pieces[Black][piece]
+		for bb != 0 {
+			sq := bb.PopLSB()
+			mg -= PiecePSTMG[piece][sq^56]
+			eg -= PiecePSTEG[piece][sq^56]
+		}
+	}
+	return
+}
+
+func TestPSTIncrementalStartPosition(t *testing.T) {
+	p := NewPosition()
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("start position PST: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+	// Symmetric start: both should be 0.
+	if p.PSTMG != 0 || p.PSTEG != 0 {
+		t.Errorf("start position PST should be 0/0, got %d/%d", p.PSTMG, p.PSTEG)
+	}
+}
+
+func TestPSTIncrementalAfterMoves(t *testing.T) {
+	p := NewPosition()
+
+	// e2e4
+	m1 := NewMove(E2, E4, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m1)
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after e2e4: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	// e7e5
+	m2 := NewMove(E7, E5, FlagDoublePawn, Pawn, NoPiece)
+	p.MakeMove(m2)
+	wantMG, wantEG = computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after e7e5: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	// Nf3
+	m3 := NewMove(G1, F3, FlagQuiet, Knight, NoPiece)
+	p.MakeMove(m3)
+	wantMG, wantEG = computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after Nf3: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	// Unmake all and verify restored.
+	p.UnmakeMove(m3)
+	p.UnmakeMove(m2)
+	p.UnmakeMove(m1)
+	if p.PSTMG != 0 || p.PSTEG != 0 {
+		t.Errorf("PST not restored after unmake all: mg=%d eg=%d", p.PSTMG, p.PSTEG)
+	}
+}
+
+func TestPSTIncrementalCapture(t *testing.T) {
+	p := &Position{}
+	_ = p.SetFromFEN("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
+	origMG, origEG := p.PSTMG, p.PSTEG
+
+	// exd5 — pawn captures pawn.
+	m := NewMove(E4, D5, FlagCapture, Pawn, Pawn)
+	p.MakeMove(m)
+
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after exd5: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	p.UnmakeMove(m)
+	if p.PSTMG != origMG || p.PSTEG != origEG {
+		t.Errorf("PST not restored after unmake capture: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, origMG, origEG)
+	}
+}
+
+func TestPSTIncrementalCastling(t *testing.T) {
+	p := &Position{}
+	_ = p.SetFromFEN("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1")
+	origMG, origEG := p.PSTMG, p.PSTEG
+
+	// White kingside castle.
+	m := NewMove(E1, G1, FlagKingCastle, King, NoPiece)
+	p.MakeMove(m)
+
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after O-O: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	p.UnmakeMove(m)
+	if p.PSTMG != origMG || p.PSTEG != origEG {
+		t.Errorf("PST not restored after unmake castle: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, origMG, origEG)
+	}
+}
+
+func TestPSTIncrementalPromotion(t *testing.T) {
+	p := &Position{}
+	_ = p.SetFromFEN("8/4P3/8/8/8/8/8/4K2k w - - 0 1")
+	origMG, origEG := p.PSTMG, p.PSTEG
+
+	m := NewMove(E7, E8, FlagPromoQueen, Pawn, NoPiece)
+	p.MakeMove(m)
+
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after promotion: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	p.UnmakeMove(m)
+	if p.PSTMG != origMG || p.PSTEG != origEG {
+		t.Errorf("PST not restored after unmake promotion: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, origMG, origEG)
+	}
+}
+
+func TestPSTIncrementalEnPassant(t *testing.T) {
+	p := &Position{}
+	_ = p.SetFromFEN("rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 3")
+	origMG, origEG := p.PSTMG, p.PSTEG
+
+	// f5xe6 en passant.
+	m := NewMove(F5, E6, FlagEnPassant, Pawn, Pawn)
+	p.MakeMove(m)
+
+	wantMG, wantEG := computePST(p)
+	if p.PSTMG != wantMG || p.PSTEG != wantEG {
+		t.Errorf("after en passant: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, wantMG, wantEG)
+	}
+
+	p.UnmakeMove(m)
+	if p.PSTMG != origMG || p.PSTEG != origEG {
+		t.Errorf("PST not restored after unmake en passant: got mg=%d eg=%d, want mg=%d eg=%d",
+			p.PSTMG, p.PSTEG, origMG, origEG)
+	}
+}

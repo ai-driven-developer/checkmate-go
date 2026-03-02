@@ -34,23 +34,23 @@ func TestPSTCentralPawnsPreferred(t *testing.T) {
 
 func TestPSTKnightCenter(t *testing.T) {
 	// Knight on e4 should have a better PST score than knight on a1.
-	if knightPST[board.E4] <= knightPST[board.A1] {
+	if board.PiecePSTMG[board.Knight][board.E4] <= board.PiecePSTMG[board.Knight][board.A1] {
 		t.Error("knight PST should prefer center over corner")
 	}
 }
 
 func TestKingEndgamePSTPreferCenter(t *testing.T) {
 	// In the endgame table, king on e4 should score better than on e1.
-	if kingEndgamePST[board.E4] <= kingEndgamePST[board.E1] {
+	if board.PiecePSTEG[board.King][board.E4] <= board.PiecePSTEG[board.King][board.E1] {
 		t.Errorf("endgame king should prefer center: e4=%d, e1=%d",
-			kingEndgamePST[board.E4], kingEndgamePST[board.E1])
+			board.PiecePSTEG[board.King][board.E4], board.PiecePSTEG[board.King][board.E1])
 	}
 }
 
 func TestKingMiddlegamePSTPreferEdge(t *testing.T) {
 	// In the middlegame table, king on g1 should score better than on e4.
-	if kingMiddlegamePST[board.G1] <= kingMiddlegamePST[board.E4] {
+	if board.PiecePSTMG[board.King][board.G1] <= board.PiecePSTMG[board.King][board.E4] {
 		t.Errorf("middlegame king should prefer castled position: g1=%d, e4=%d",
-			kingMiddlegamePST[board.G1], kingMiddlegamePST[board.E4])
+			board.PiecePSTMG[board.King][board.G1], board.PiecePSTMG[board.King][board.E4])
 	}
 }
