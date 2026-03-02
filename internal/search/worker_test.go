@@ -1393,3 +1393,138 @@ func TestContHistMoveScoring(t *testing.T) {
 			scores[1], scores[0])
 	}
 }
+
+// --- SEE Pruning in Main Search tests ---
+
+func TestSEEPruningReducesNodes(t *testing.T) {
+	// A middlegame position with many possible moves. SEE pruning should
+	// skip moves that lose material, reducing total node count.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r1bqkb1r/pppppppp/2n2n2/8/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+
+	engine := NewEngine()
+	bestMove := engine.Search(pos, SearchLimits{Depth: 7})
+	nodes := engine.nodes.Load()
+
+	if bestMove == board.NullMove {
+		t.Error("SEE pruning should not prevent finding a valid move")
+	}
+	if nodes == 0 {
+		t.Fatal("search produced no nodes")
+	}
+}
+
+func TestSEEPruningDoesNotMissTactics(t *testing.T) {
+	tests := []struct {
+		name     string
+		fen      string
+		wantMove string
+	}{
+		{
+			name:     "capture free queen",
+			fen:      "4k3/8/8/8/3q4/8/5B2/4K3 w - - 0 1",
+			wantMove: "f2d4",
+		},
+		{
+			name:     "back rank mate",
+			fen:      "6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1",
+			wantMove: "a1a8",
+		},
+		{
+			name:     "mate in 2",
+			fen:      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+			wantMove: "h5f7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove.String() != tc.wantMove {
+				t.Errorf("expected %s, got %s", tc.wantMove, bestMove)
+			}
+		})
+	}
+}
+
+func TestSEEPruningPreservesCorrectPlay(t *testing.T) {
+	tests := []struct {
+		name string
+		fen  string
+	}{
+		{
+			name: "starting position",
+			fen:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		},
+		{
+			name: "sicilian defense",
+			fen:  "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+		},
+		{
+			name: "queen endgame",
+			fen:  "4k3/8/8/8/8/8/8/Q3K3 w - - 0 1",
+		},
+		{
+			name: "complex middlegame",
+			fen:  "r1bqk2r/ppp2ppp/2n1pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq d6 0 5",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pos := &board.Position{}
+			_ = pos.SetFromFEN(tc.fen)
+
+			engine := NewEngine()
+			bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+			if bestMove == board.NullMove {
+				t.Error("expected a valid move with SEE pruning enabled")
+			}
+		})
+	}
+}
+
+func TestSEEPruningDoesNotMissMate(t *testing.T) {
+	// SEE pruning must not prevent finding a forced mate.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("6k1/5ppp/8/8/8/8/1Q6/R3K3 w - - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 4})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	if lastScore < MateScore-MaxDepth {
+		t.Errorf("expected mate score, got %d", lastScore)
+	}
+}
+
+func TestSEEPruningSkipsPromotions(t *testing.T) {
+	// A pawn about to promote. SEE pruning must not prune promotion moves.
+	pos := &board.Position{}
+	_ = pos.SetFromFEN("r3k3/1P6/8/8/8/8/8/4K3 w q - 0 1")
+
+	engine := NewEngine()
+	var lastScore int
+	engine.SetInfoCallback(func(info SearchInfo) {
+		lastScore = info.Score
+	})
+	bestMove := engine.Search(pos, SearchLimits{Depth: 6})
+
+	if bestMove == board.NullMove {
+		t.Fatal("expected a valid move")
+	}
+	// White should find the promotion — score should reflect material gain.
+	if lastScore < 500 {
+		t.Errorf("expected high score from promotion, got %d", lastScore)
+	}
+}

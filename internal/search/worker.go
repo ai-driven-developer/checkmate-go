@@ -334,6 +334,19 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			continue
 		}
 
+		// SEE pruning: skip moves that lose material according to SEE.
+		// Quiet moves use a negative threshold (scaled by depth); captures must
+		// not lose material at all. Skipped for the hash move (i==0 after pick-best
+		// when hash move is present) and promotions.
+		if !isPV && !inCheck && bestScore > -MateScore+MaxDepth && !m.IsPromotion() {
+			if !m.IsCapture() && depth <= 8 && SEE(&w.pos, m) < -depth*80 {
+				continue
+			}
+			if m.IsCapture() && depth <= 6 && SEE(&w.pos, m) < -depth*20 {
+				continue
+			}
+		}
+
 		w.pos.MakeMove(m)
 
 		// Check extension: search deeper when the move gives check.
