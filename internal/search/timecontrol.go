@@ -58,7 +58,18 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 
 	movesLeft := limits.MovesToGo
 	if movesLeft == 0 {
-		movesLeft = 25
+		// Adaptive estimate: be more conservative when time is low
+		// (typical of bullet) and spend more when comfortable.
+		switch {
+		case remaining < 5*time.Second:
+			movesLeft = 40
+		case remaining < 15*time.Second:
+			movesLeft = 30
+		case remaining < 60*time.Second:
+			movesLeft = 25
+		default:
+			movesLeft = 22
+		}
 	}
 
 	// Optimum: base time per move + 3/4 of increment.
@@ -133,11 +144,16 @@ func (tm *TimeManager) shouldStopSoft(bestMove board.Move, score int, depth int)
 	adjusted := tm.optimumTime
 
 	// Stability: scale down for stable moves, scale up for unstable ones.
+	// More granular tiers help bullet play fast on obvious moves.
 	switch {
+	case tm.stabilityCount >= 8:
+		adjusted = adjusted * 40 / 100 // 40%
 	case tm.stabilityCount >= 6:
 		adjusted = adjusted * 50 / 100 // 50%
 	case tm.stabilityCount >= 4:
-		adjusted = adjusted * 70 / 100 // 70%
+		adjusted = adjusted * 65 / 100 // 65%
+	case tm.stabilityCount >= 2:
+		adjusted = adjusted * 85 / 100 // 85%
 	case tm.stabilityCount == 0:
 		adjusted = adjusted * 130 / 100 // 130%
 	}

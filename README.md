@@ -14,7 +14,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Static Exchange Evaluation (SEE):** full exchange sequence analysis with x-ray attack discovery, en passant and promotion support
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
 - **Evaluation:** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), passed pawn bonus, pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure)
-- **Time management:** adaptive soft/hard time limits with move stability detection and score-drop extension; supports classical, increment, and fixed move time controls
+- **Time management:** adaptive soft/hard time limits with move stability detection, score-drop extension, and time-aware move allocation (bullet-optimized); supports classical, increment, and fixed move time controls
 - **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
 
 ## Lichess Rating

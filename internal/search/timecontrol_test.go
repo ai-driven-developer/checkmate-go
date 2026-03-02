@@ -249,6 +249,124 @@ func TestScoreDropSmallNoExtension(t *testing.T) {
 	}
 }
 
+// --- Adaptive movesLeft tests ---
+
+func TestAdaptiveMovesLeftBullet(t *testing.T) {
+	// With very low time (<5s), movesLeft=40 → smaller per-move allocation.
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 3 * time.Second}, board.White, 0)
+
+	// remaining=3s, movesLeft=40: optimum = 3s/40 = 75ms.
+	if tm.optimumTime > 200*time.Millisecond {
+		t.Errorf("bullet optimum too high: %v", tm.optimumTime)
+	}
+}
+
+func TestAdaptiveMovesLeftLowTime(t *testing.T) {
+	// With 10s remaining (<15s), movesLeft=30.
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 10 * time.Second, WInc: 1 * time.Second}, board.White, 0)
+
+	// remaining=10s, movesLeft=30: optimum = 10/30 + 0.75 = ~1.08s.
+	if tm.optimumTime < 500*time.Millisecond || tm.optimumTime > 2*time.Second {
+		t.Errorf("low-time optimum out of range: %v", tm.optimumTime)
+	}
+}
+
+func TestAdaptiveMovesLeftComfortable(t *testing.T) {
+	// With plenty of time (>=60s), movesLeft=22 → more time per move.
+	var tmComfortable TimeManager
+	tmComfortable.init(SearchLimits{WTime: 120 * time.Second}, board.White, 0)
+
+	// Compare with what we'd get if movesLeft were still 25.
+	var tmOld TimeManager
+	tmOld.init(SearchLimits{WTime: 120 * time.Second, MovesToGo: 25}, board.White, 0)
+
+	// movesLeft=22 should allocate more time per move than movesLeft=25.
+	if tmComfortable.optimumTime <= tmOld.optimumTime {
+		t.Errorf("comfortable time should allocate more: adaptive=%v, fixed25=%v",
+			tmComfortable.optimumTime, tmOld.optimumTime)
+	}
+}
+
+func TestAdaptiveMovesLeftMovesToGoOverride(t *testing.T) {
+	// When MovesToGo is explicitly set, adaptive logic is bypassed.
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 3 * time.Second, MovesToGo: 5}, board.White, 0)
+
+	// remaining=3s, movesLeft=5: optimum = 3/5 = 600ms (not 75ms from adaptive).
+	if tm.optimumTime < 400*time.Millisecond {
+		t.Errorf("MovesToGo override should use explicit value: optimum=%v", tm.optimumTime)
+	}
+}
+
+// --- Granular stability tests ---
+
+func TestStabilityTierEight(t *testing.T) {
+	// After 8+ stable iterations, adjusted should be 40% of optimum.
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 60 * time.Second}, board.White, 0)
+
+	m := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	for depth := 1; depth <= 9; depth++ {
+		tm.shouldStopSoft(m, 20, depth)
+	}
+
+	if tm.stabilityCount < 8 {
+		t.Errorf("stabilityCount = %d, want >= 8", tm.stabilityCount)
+	}
+}
+
+func TestStabilityTierTwo(t *testing.T) {
+	// After 2-3 stable iterations, adjusted should be 85% of optimum (not 100%).
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 60 * time.Second}, board.White, 0)
+
+	m := board.NewMove(board.E2, board.E4, board.FlagDoublePawn, board.Pawn, board.NoPiece)
+	// depth 1: initializes, depth 2-3: two stable iterations → stabilityCount=2
+	for depth := 1; depth <= 3; depth++ {
+		tm.shouldStopSoft(m, 20, depth)
+	}
+
+	if tm.stabilityCount != 2 {
+		t.Errorf("stabilityCount = %d, want 2", tm.stabilityCount)
+	}
+}
+
+func TestBulletSearchCompletesQuickly(t *testing.T) {
+	// Simulate a bullet game: 1s remaining, no increment.
+	// The engine must complete within the available time.
+	e := NewEngine()
+	start := time.Now()
+	bestMove := e.Search(board.NewPosition(), SearchLimits{WTime: 1 * time.Second})
+	elapsed := time.Since(start)
+
+	if bestMove == board.NullMove {
+		t.Error("bullet search returned null move")
+	}
+	if elapsed > 1*time.Second {
+		t.Errorf("bullet search took %v, exceeded 1s remaining time", elapsed)
+	}
+}
+
+func TestBulletWithIncrementSearch(t *testing.T) {
+	// Simulate bullet with increment: 2s + 1s per move.
+	e := NewEngine()
+	start := time.Now()
+	bestMove := e.Search(board.NewPosition(), SearchLimits{
+		WTime: 2 * time.Second,
+		WInc:  1 * time.Second,
+	})
+	elapsed := time.Since(start)
+
+	if bestMove == board.NullMove {
+		t.Error("bullet+inc search returned null move")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("bullet+inc search took %v, exceeded remaining time", elapsed)
+	}
+}
+
 // --- Engine integration tests ---
 
 func TestSetHashResizesTT(t *testing.T) {
