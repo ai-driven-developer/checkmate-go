@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.5.0
+
+### Search
+- **Razoring:** prune nodes at shallow depths where static eval is far below alpha
+- **ProbCut:** prune nodes where a shallow search at a higher beta threshold already exceeds beta
+- **SEE pruning in main search:** prune quiet moves and captures with negative SEE at shallow depths
+- **Delta pruning:** prune captures in quiescence search when material gain plus a margin can't raise alpha
+- **Improved time management:** adaptive time allocation optimized for bullet time controls with move stability detection and score-drop extension
+
+### Move Ordering
+- **History gravity:** apply bonus/malus with gravity to prevent unbounded history score growth
+- **Continuation history (1-ply and 2-ply):** use previous moves to improve quiet move ordering and LMR
+
+### Evaluation
+- **Knight outposts:** bonus for knights on outpost squares supported by pawns
+- **Rook evaluation:** bonuses for open/semi-open files and 7th rank placement
+- **Passed pawn evaluation:** bonus with king-passer distance (friendly king proximity, enemy king distance)
+- **Per-worker pawn hash table:** cache pawn structure evaluation with incremental pawn Zobrist hash
+
+### Performance
+- **Incremental piece-square tables:** PST scores updated incrementally during make/unmake moves
+
 ## 1.4.0
 
 ### Search

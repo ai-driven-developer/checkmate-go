@@ -26,6 +26,7 @@ Plays as a bot on Lichess: [checkmatego-bot](https://lichess.org/@/checkmatego-b
 | 1.1.0   | 1823   | 1748  |
 | 1.2.0   | 2105   | 2108  |
 | 1.3.0   | 2212   | 2252  |
+| 1.4.0   | 2327   | 2344  |
 
 ## Building
 
@@ -49,7 +50,7 @@ Example session:
 
 ```
 uci
-id name CheckmateGo 1.4.0
+id name CheckmateGo 1.5.0
 id author ai-driven-developer
 option name Hash type spin default 64 min 1 max 4096
 option name Threads type spin default 1 min 1 max 128
