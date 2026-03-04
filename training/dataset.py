@@ -110,6 +110,84 @@ def collate_fn(batch):
     )
 
 
+class BatchedNNUEDataset(Dataset):
+    """Batch-level dataset with vectorized numpy parsing.
+
+    Each __getitem__ returns a full pre-collated batch, eliminating
+    per-sample struct.unpack and Python-level collation overhead.
+    The DataLoader should use batch_size=None with this dataset.
+    """
+
+    def __init__(self, path, batch_size):
+        data = np.memmap(path, dtype=np.uint8, mode="r")
+        if len(data) % RECORD_SIZE != 0:
+            raise ValueError(
+                f"File size {len(data)} is not a multiple of "
+                f"record size {RECORD_SIZE}"
+            )
+        self.num_samples = len(data) // RECORD_SIZE
+        self.batch_size = batch_size
+        self.num_batches = self.num_samples // batch_size
+        # 2D view: [num_samples, 136] for efficient fancy indexing.
+        self.records = data.reshape(self.num_samples, RECORD_SIZE)
+        # Column range for vectorized mask building.
+        self._col_range = np.arange(MAX_FEATURES, dtype=np.int32)
+
+    def __len__(self):
+        return self.num_batches
+
+    def __getitem__(self, batch_idx):
+        # Random sampling (with replacement) — simple, no epoch-level shuffle.
+        indices = np.random.randint(0, self.num_samples, size=self.batch_size)
+        records = self.records[indices]  # [batch_size, 136] uint8, contiguous copy
+
+        # --- Parse headers (vectorized) ---
+        n_white = records[:, 0].astype(np.int32)
+        n_black = records[:, 1].astype(np.int32)
+        stm = records[:, 2].astype(np.bool_)
+        result = records[:, 3].view(np.int8).astype(np.float32)
+        score = records[:, 4:6].copy().view(np.dtype("<i2"))[:, 0].astype(np.float32)
+
+        # --- Parse feature grids (vectorized) ---
+        white_raw = records[:, 8:72].copy().view(np.dtype("<u2")).reshape(
+            self.batch_size, MAX_FEATURES
+        )
+        black_raw = records[:, 72:136].copy().view(np.dtype("<u2")).reshape(
+            self.batch_size, MAX_FEATURES
+        )
+
+        # --- Build valid-feature masks (vectorized) ---
+        white_mask = self._col_range[np.newaxis, :] < n_white[:, np.newaxis]
+        black_mask = self._col_range[np.newaxis, :] < n_black[:, np.newaxis]
+        white_mask &= white_raw != UNUSED_FEATURE
+        black_mask &= black_raw != UNUSED_FEATURE
+
+        # --- Flat indices + offsets for EmbeddingBag (vectorized) ---
+        white_counts = white_mask.sum(axis=1)
+        black_counts = black_mask.sum(axis=1)
+
+        white_offsets = np.empty(self.batch_size, dtype=np.int64)
+        white_offsets[0] = 0
+        np.cumsum(white_counts[:-1], out=white_offsets[1:])
+
+        black_offsets = np.empty(self.batch_size, dtype=np.int64)
+        black_offsets[0] = 0
+        np.cumsum(black_counts[:-1], out=black_offsets[1:])
+
+        white_flat = white_raw[white_mask].astype(np.int64)
+        black_flat = black_raw[black_mask].astype(np.int64)
+
+        return (
+            torch.from_numpy(white_flat),
+            torch.from_numpy(white_offsets),
+            torch.from_numpy(black_flat),
+            torch.from_numpy(black_offsets),
+            torch.from_numpy(stm),
+            torch.from_numpy(score),
+            torch.from_numpy(result),
+        )
+
+
 def write_record(f, white_features, black_features, stm, score, result):
     """Write a single training record to a binary file.
 

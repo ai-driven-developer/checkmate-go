@@ -29,6 +29,13 @@ class NNUE(nn.Module):
 
         self._init_weights()
 
+        # Compile the fixed-shape portion (post-EmbeddingBag).
+        # EmbeddingBag has dynamic input shapes so it cannot be compiled.
+        # reduce-overhead uses CUDA graphs — ideal for this small model.
+        self._post_ft = torch.compile(
+            self._post_ft_impl, mode="reduce-overhead", disable=not torch.cuda.is_available()
+        )
+
     def _init_weights(self):
         # Small init for feature transformer (accumulates ~32 rows).
         nn.init.uniform_(self.ft.weight, -0.05, 0.05)
@@ -37,6 +44,19 @@ class NNUE(nn.Module):
         nn.init.zeros_(self.l1.bias)
         nn.init.kaiming_normal_(self.l2.weight, nonlinearity="linear")
         nn.init.zeros_(self.l2.bias)
+
+    def _post_ft_impl(self, white_acc, black_acc, stm):
+        """Post-feature-transformer computation (fixed shapes, compilable)."""
+        white_acc = torch.clamp(white_acc, 0.0, 1.0)
+        black_acc = torch.clamp(black_acc, 0.0, 1.0)
+
+        stm_col = stm.unsqueeze(1)
+        us = torch.where(stm_col, black_acc, white_acc)
+        them = torch.where(stm_col, white_acc, black_acc)
+        combined = torch.cat([us, them], dim=1)
+
+        hidden = torch.clamp(self.l1(combined), 0.0, 1.0)
+        return self.l2(hidden)
 
     def forward(self, white_indices, white_offsets, black_indices,
                 black_offsets, stm):
@@ -56,18 +76,5 @@ class NNUE(nn.Module):
         white_acc = self.ft(white_indices, white_offsets) + self.ft_bias
         black_acc = self.ft(black_indices, black_offsets) + self.ft_bias
 
-        # ClippedReLU [0, 1] (maps to [0, QA] in quantized domain).
-        white_acc = torch.clamp(white_acc, 0.0, 1.0)
-        black_acc = torch.clamp(black_acc, 0.0, 1.0)
-
-        # Concatenate: side-to-move perspective first.
-        stm_col = stm.unsqueeze(1)  # [batch, 1]
-        us = torch.where(stm_col, black_acc, white_acc)
-        them = torch.where(stm_col, white_acc, black_acc)
-        combined = torch.cat([us, them], dim=1)  # [batch, 512]
-
-        # Hidden layer with ClippedReLU [0, 1].
-        hidden = torch.clamp(self.l1(combined), 0.0, 1.0)
-
-        # Output layer (no activation).
-        return self.l2(hidden)
+        # Fixed-shape portion (compiled with CUDA graphs).
+        return self._post_ft(white_acc, black_acc, stm)

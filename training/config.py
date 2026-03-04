@@ -32,6 +32,8 @@ WEIGHT_DECAY = 1e-6
 GRAD_CLIP = 1.0
 LAMBDA = 0.75           # blend: lambda*eval + (1-lambda)*wdl
 EVAL_SCALE = 400.0      # sigmoid scaling for eval targets
+NUM_WORKERS = 8         # DataLoader worker processes
+PREFETCH_FACTOR = 4     # batches pre-loaded per worker
 
 # ---------------------------------------------------------------------------
 # Data generation

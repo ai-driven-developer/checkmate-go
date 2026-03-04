@@ -24,9 +24,11 @@ from config import (
     GRAD_CLIP,
     LAMBDA,
     EVAL_SCALE,
+    NUM_WORKERS,
+    PREFETCH_FACTOR,
 )
 from model import NNUE
-from dataset import NNUEDataset, collate_fn
+from dataset import BatchedNNUEDataset
 from export import export_network
 
 
@@ -52,32 +54,42 @@ def loss_fn(model_output, score_target, result_target, lambda_):
     return torch.mean((model_sig - blended) ** 2)
 
 
-def train_epoch(model, loader, optimizer, device, lambda_):
+def train_epoch(model, loader, optimizer, device, lambda_, scaler):
     """Train for one epoch. Returns average loss."""
     model.train()
     total_loss = 0.0
     num_batches = 0
+    use_amp = scaler is not None
 
     for batch in loader:
         w_idx, w_off, b_idx, b_off, stm, score, result = [
-            x.to(device) for x in batch
+            x.to(device, non_blocking=True) for x in batch
         ]
 
-        # Forward pass.
-        output = model(w_idx, w_off, b_idx, b_off, stm).squeeze(1)
+        with torch.amp.autocast("cuda", enabled=use_amp):
+            # Forward pass.
+            output = model(w_idx, w_off, b_idx, b_off, stm).squeeze(1)
 
-        # Flip score and result to STM perspective.
-        # Data stores scores from White's POV; when Black is STM, flip sign.
-        stm_float = stm.float()
-        score_stm = score * (1.0 - 2.0 * stm_float)
-        result_stm = result * (1.0 - 2.0 * stm_float)
+            # Flip score and result to STM perspective.
+            # Data stores scores from White's POV; when Black is STM, flip sign.
+            stm_float = stm.float()
+            score_stm = score * (1.0 - 2.0 * stm_float)
+            result_stm = result * (1.0 - 2.0 * stm_float)
 
-        loss = loss_fn(output, score_stm, result_stm, lambda_)
+            loss = loss_fn(output, score_stm, result_stm, lambda_)
 
         optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
-        optimizer.step()
+
+        if use_amp:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
+            optimizer.step()
 
         total_loss += loss.item()
         num_batches += 1
@@ -110,18 +122,20 @@ def main():
         device = torch.device("cpu")
     print(f"Device: {device}")
 
-    # Dataset.
-    dataset = NNUEDataset(args.data)
-    print(f"Training data: {len(dataset)} positions")
+    # Dataset (batched — each item is a full pre-collated batch).
+    dataset = BatchedNNUEDataset(args.data, args.batch_size)
+    print(f"Training data: {dataset.num_samples} positions, "
+          f"{len(dataset)} batches/epoch")
 
+    num_workers = min(NUM_WORKERS, os.cpu_count() or 1)
     loader = DataLoader(
         dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=min(4, os.cpu_count() or 1),
-        collate_fn=collate_fn,
+        batch_size=None,  # dataset returns pre-collated batches
+        shuffle=True,     # shuffles batch order
+        num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
-        drop_last=True,
+        prefetch_factor=PREFETCH_FACTOR if num_workers > 0 else None,
+        persistent_workers=num_workers > 0,
     )
 
     # Model.
@@ -143,19 +157,23 @@ def main():
         optimizer, step_size=LR_DROP_EPOCH, gamma=LR_DROP_FACTOR
     )
 
+    # AMP scaler (CUDA only).
+    scaler = torch.amp.GradScaler("cuda") if device.type == "cuda" else None
+
     # Directories.
     os.makedirs("models", exist_ok=True)
 
     # Training loop.
     print(f"\nTraining for {args.epochs} epochs, batch size {args.batch_size}, "
-          f"lambda={args.lambda_}")
+          f"lambda={args.lambda_}, AMP={'on' if scaler else 'off'}")
     print("-" * 60)
 
     best_loss = float("inf")
 
     for epoch in range(args.epochs):
         t0 = time.time()
-        avg_loss = train_epoch(model, loader, optimizer, device, args.lambda_)
+        avg_loss = train_epoch(model, loader, optimizer, device, args.lambda_,
+                               scaler)
         scheduler.step()
         elapsed = time.time() - t0
 
