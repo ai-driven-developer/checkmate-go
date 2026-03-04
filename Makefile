@@ -3,7 +3,7 @@
 BINARY = checkmatego
 
 build:
-	go build -o $(BINARY) ./cmd/checkmatego/
+	GOAMD64=v3 go build -o $(BINARY) ./cmd/checkmatego/
 
 test:
 	go test ./internal/... -v -timeout 120s

@@ -25,9 +25,8 @@ func (as *AccumulatorStack) MakeMove(pos *board.Position, m board.Move) {
 		as.movePiece(us, piece, from, to)
 
 	case board.FlagCapture:
-		// Remove captured piece, then move our piece.
-		as.removePiece(them, captured, to)
-		as.movePiece(us, piece, from, to)
+		// Combined remove captured + move our piece in one pass.
+		as.capturePiece(us, piece, from, to, them, captured, to)
 
 	case board.FlagEnPassant:
 		// Captured pawn is behind the target square.
@@ -37,8 +36,7 @@ func (as *AccumulatorStack) MakeMove(pos *board.Position, m board.Move) {
 		} else {
 			capturedSq = to + 8
 		}
-		as.removePiece(them, board.Pawn, capturedSq)
-		as.movePiece(us, board.Pawn, from, to)
+		as.capturePiece(us, board.Pawn, from, to, them, board.Pawn, capturedSq)
 
 	case board.FlagKingCastle:
 		// Move king.
@@ -91,29 +89,39 @@ func (as *AccumulatorStack) UnmakeNullMove() {
 	as.Pop()
 }
 
+// capturePiece combines removePiece + movePiece into a single pass for captures.
+func (as *AccumulatorStack) capturePiece(
+	movColor board.Color, movPiece board.Piece, from, to board.Square,
+	capColor board.Color, capPiece board.Piece, capSq board.Square,
+) {
+	wCapIdx := FeatureIndex(board.White, capColor, capPiece, capSq)
+	bCapIdx := FeatureIndex(board.Black, capColor, capPiece, capSq)
+	wFrom := FeatureIndex(board.White, movColor, movPiece, from)
+	wTo := FeatureIndex(board.White, movColor, movPiece, to)
+	bFrom := FeatureIndex(board.Black, movColor, movPiece, from)
+	bTo := FeatureIndex(board.Black, movColor, movPiece, to)
+	as.subAddSubBoth(wCapIdx, bCapIdx, wTo, wFrom, bTo, bFrom)
+}
+
 // movePiece updates both perspectives for a piece moving from one square to another.
 func (as *AccumulatorStack) movePiece(color board.Color, piece board.Piece, from, to board.Square) {
 	wFrom := FeatureIndex(board.White, color, piece, from)
 	wTo := FeatureIndex(board.White, color, piece, to)
 	bFrom := FeatureIndex(board.Black, color, piece, from)
 	bTo := FeatureIndex(board.Black, color, piece, to)
-
-	as.addSubFeature(board.White, wTo, wFrom)
-	as.addSubFeature(board.Black, bTo, bFrom)
+	as.addSubBoth(wTo, wFrom, bTo, bFrom)
 }
 
 // addPiece updates both perspectives for a piece being placed on a square.
 func (as *AccumulatorStack) addPiece(color board.Color, piece board.Piece, sq board.Square) {
 	wIdx := FeatureIndex(board.White, color, piece, sq)
 	bIdx := FeatureIndex(board.Black, color, piece, sq)
-	as.AddFeature(board.White, wIdx)
-	as.AddFeature(board.Black, bIdx)
+	as.addBoth(wIdx, bIdx)
 }
 
 // removePiece updates both perspectives for a piece being removed from a square.
 func (as *AccumulatorStack) removePiece(color board.Color, piece board.Piece, sq board.Square) {
 	wIdx := FeatureIndex(board.White, color, piece, sq)
 	bIdx := FeatureIndex(board.Black, color, piece, sq)
-	as.SubFeature(board.White, wIdx)
-	as.SubFeature(board.Black, bIdx)
+	as.subBoth(wIdx, bIdx)
 }

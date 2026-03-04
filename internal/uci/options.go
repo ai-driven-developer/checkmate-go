@@ -43,7 +43,11 @@ func (o *Options) PrintOptions(printf func(format string, a ...interface{})) {
 	printf("option name SyzygyPath type string default %s\n", o.SyzygyPath)
 	printf("option name UCI_ShowWDL type check default false\n")
 	printf("option name UseNNUE type check default true\n")
-	printf("option name EvalFile type string default %s\n", o.EvalFile)
+	evalDefault := o.EvalFile
+	if evalDefault == "" {
+		evalDefault = "<embedded>"
+	}
+	printf("option name EvalFile type string default %s\n", evalDefault)
 }
 
 // SetOption applies a UCI setoption command.

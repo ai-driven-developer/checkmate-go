@@ -22,6 +22,11 @@ type Network struct {
 	HiddenBiases   [L2Size]int32
 	OutputWeights  [L2Size]int8
 	OutputBias     int32
+
+	// Pre-expanded weights (int8→int32) for faster Evaluate inner loop.
+	// Eliminates type conversion in the hot path.
+	hiddenW32 [2 * HiddenSize][L2Size]int32
+	outputW32 [L2Size]int32
 }
 
 // Magic bytes and version for the binary network format.
@@ -84,64 +89,46 @@ func ReadNetwork(r io.Reader) (*Network, error) {
 		return nil, fmt.Errorf("nnue: read output bias: %w", err)
 	}
 
+	n.expandWeights()
 	return n, nil
+}
+
+// expandWeights pre-expands int8 weights to int32 for faster evaluation.
+func (n *Network) expandWeights() {
+	for i := range n.HiddenWeights {
+		for j := range n.HiddenWeights[i] {
+			n.hiddenW32[i][j] = int32(n.HiddenWeights[i][j])
+		}
+	}
+	for j := range n.OutputWeights {
+		n.outputW32[j] = int32(n.OutputWeights[j])
+	}
 }
 
 // Evaluate performs the forward pass and returns a score in centipawns
 // from the side-to-move's perspective.
 func (n *Network) Evaluate(acc *Accumulator, sideToMove board.Color) int {
-	// Determine perspective order: side-to-move first, then opponent.
 	us := int(sideToMove)
 	them := int(sideToMove ^ 1)
 
-	// Hidden layer: ClippedReLU on accumulator, then linear transform.
-	var hidden [L2Size]int32
-	for j := 0; j < L2Size; j++ {
-		hidden[j] = n.HiddenBiases[j]
-	}
+	// Hidden layer: ClippedReLU on accumulator, then AVX2 matrix-vector multiply.
+	hidden := n.HiddenBiases // copy [32]int32
 
-	// "Us" perspective (first 256 inputs).
-	for i := 0; i < HiddenSize; i++ {
-		v := int32(acc.Values[us][i])
-		// ClippedReLU: clamp to [0, QA].
-		if v < 0 {
-			v = 0
-		} else if v > QA {
-			v = QA
-		}
-		for j := 0; j < L2Size; j++ {
-			hidden[j] += v * int32(n.HiddenWeights[i][j])
-		}
-	}
-
-	// "Them" perspective (next 256 inputs).
-	for i := 0; i < HiddenSize; i++ {
-		v := int32(acc.Values[them][i])
-		if v < 0 {
-			v = 0
-		} else if v > QA {
-			v = QA
-		}
-		for j := 0; j < L2Size; j++ {
-			hidden[j] += v * int32(n.HiddenWeights[HiddenSize+i][j])
-		}
-	}
+	vecEvalPerspective(&hidden[0], &acc.Values[us][0], &n.hiddenW32[0][0])
+	vecEvalPerspective(&hidden[0], &acc.Values[them][0], &n.hiddenW32[HiddenSize][0])
 
 	// Output layer: ClippedReLU on hidden, then linear transform.
 	output := n.OutputBias
 	for j := 0; j < L2Size; j++ {
-		// Divide by QA to rescale after the first multiplication.
 		v := hidden[j] / QA
-		if v < 0 {
-			v = 0
-		} else if v > QB {
+		if v <= 0 {
+			continue
+		}
+		if v > QB {
 			v = QB
 		}
-		output += v * int32(n.OutputWeights[j])
+		output += v * n.outputW32[j]
 	}
 
-	// Scale: output is in quantized units; convert to centipawns.
-	// The accumulator values are already scaled by the weight quantization.
-	// Final division accounts for QB scaling.
 	return int(output) * OutputScale / (QB * QA)
 }

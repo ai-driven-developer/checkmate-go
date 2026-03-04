@@ -67,11 +67,21 @@ func (h *Handler) applyOptions() {
 
 // loadNetwork loads or clears the NNUE network based on current options.
 func (h *Handler) loadNetwork() {
-	if !h.options.UseNNUE || h.options.EvalFile == "" {
+	if !h.options.UseNNUE {
 		h.engine.SetNetwork(nil)
 		return
 	}
-	net, err := nnue.LoadNetwork(h.options.EvalFile)
+
+	var net *nnue.Network
+	var err error
+
+	if h.options.EvalFile == "" || h.options.EvalFile == "<embedded>" {
+		// Use the network embedded at compile time.
+		net, err = nnue.LoadEmbeddedNetwork()
+	} else {
+		net, err = nnue.LoadNetwork(h.options.EvalFile)
+	}
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "info string Failed to load NNUE: %v\n", err)
 		h.engine.SetNetwork(nil)

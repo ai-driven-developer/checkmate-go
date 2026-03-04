@@ -38,6 +38,7 @@ func makeTestNetwork() *Network {
 		n.OutputWeights[j] = int8(j%3 - 1)
 	}
 	n.OutputBias = 0
+	n.expandWeights()
 	return n
 }
 

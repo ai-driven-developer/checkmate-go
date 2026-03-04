@@ -29,7 +29,8 @@ func (as *AccumulatorStack) Current() *Accumulator {
 
 // Push copies the current accumulator to the next slot and advances the index.
 func (as *AccumulatorStack) Push() {
-	as.stack[as.idx+1] = as.stack[as.idx]
+	copy(as.stack[as.idx+1].Values[0][:], as.stack[as.idx].Values[0][:])
+	copy(as.stack[as.idx+1].Values[1][:], as.stack[as.idx].Values[1][:])
 	as.idx++
 }
 
@@ -45,10 +46,8 @@ func (as *AccumulatorStack) Refresh(pos *board.Position) {
 	acc := &as.stack[0]
 
 	// Start from biases.
-	for i := 0; i < HiddenSize; i++ {
-		acc.Values[0][i] = as.Net.FeatureBiases[i]
-		acc.Values[1][i] = as.Net.FeatureBiases[i]
-	}
+	copy(acc.Values[0][:], as.Net.FeatureBiases[:])
+	copy(acc.Values[1][:], as.Net.FeatureBiases[:])
 
 	// Add active features for every piece on the board.
 	for sq := board.Square(0); sq < 64; sq++ {
@@ -58,39 +57,48 @@ func (as *AccumulatorStack) Refresh(pos *board.Position) {
 		}
 		wIdx := FeatureIndex(board.White, color, piece, sq)
 		bIdx := FeatureIndex(board.Black, color, piece, sq)
-		for j := 0; j < HiddenSize; j++ {
-			acc.Values[0][j] += as.Net.FeatureWeights[wIdx][j]
-			acc.Values[1][j] += as.Net.FeatureWeights[bIdx][j]
-		}
+		vecAdd16(&acc.Values[0][0], &as.Net.FeatureWeights[wIdx][0])
+		vecAdd16(&acc.Values[1][0], &as.Net.FeatureWeights[bIdx][0])
 	}
 }
 
-// AddFeature adds the weights for a single feature to the current accumulator
-// for the given perspective.
-func (as *AccumulatorStack) AddFeature(perspective board.Color, index int) {
+// addBoth adds the weights for a feature to both perspectives.
+func (as *AccumulatorStack) addBoth(wIdx, bIdx int) {
 	acc := &as.stack[as.idx]
-	p := int(perspective)
-	for j := 0; j < HiddenSize; j++ {
-		acc.Values[p][j] += as.Net.FeatureWeights[index][j]
-	}
+	vecAdd16(&acc.Values[0][0], &as.Net.FeatureWeights[wIdx][0])
+	vecAdd16(&acc.Values[1][0], &as.Net.FeatureWeights[bIdx][0])
 }
 
-// SubFeature subtracts the weights for a single feature from the current
-// accumulator for the given perspective.
-func (as *AccumulatorStack) SubFeature(perspective board.Color, index int) {
+// subBoth subtracts the weights for a feature from both perspectives.
+func (as *AccumulatorStack) subBoth(wIdx, bIdx int) {
 	acc := &as.stack[as.idx]
-	p := int(perspective)
-	for j := 0; j < HiddenSize; j++ {
-		acc.Values[p][j] -= as.Net.FeatureWeights[index][j]
-	}
+	vecSub16(&acc.Values[0][0], &as.Net.FeatureWeights[wIdx][0])
+	vecSub16(&acc.Values[1][0], &as.Net.FeatureWeights[bIdx][0])
 }
 
-// addSubFeature performs a combined add+subtract for efficiency when
-// moving a piece (subtract old square, add new square).
-func (as *AccumulatorStack) addSubFeature(perspective board.Color, addIdx, subIdx int) {
+// addSubBoth performs combined add+subtract for both perspectives
+// (moving a piece: subtract old square, add new square).
+func (as *AccumulatorStack) addSubBoth(wAddIdx, wSubIdx, bAddIdx, bSubIdx int) {
 	acc := &as.stack[as.idx]
-	p := int(perspective)
+	vecAddSub16(&acc.Values[0][0], &as.Net.FeatureWeights[wAddIdx][0], &as.Net.FeatureWeights[wSubIdx][0])
+	vecAddSub16(&acc.Values[1][0], &as.Net.FeatureWeights[bAddIdx][0], &as.Net.FeatureWeights[bSubIdx][0])
+}
+
+// subAddSubBoth combines removePiece + movePiece into a single loop for captures.
+// Subtracts captured piece and moves our piece in one pass over 256 elements.
+func (as *AccumulatorStack) subAddSubBoth(
+	wCapIdx, bCapIdx int, // captured piece feature indices
+	wAddIdx, wSubIdx, bAddIdx, bSubIdx int, // moving piece add/sub indices
+) {
+	acc := &as.stack[as.idx]
+	wc := &as.Net.FeatureWeights[wCapIdx]
+	bc := &as.Net.FeatureWeights[bCapIdx]
+	wa := &as.Net.FeatureWeights[wAddIdx]
+	ws := &as.Net.FeatureWeights[wSubIdx]
+	ba := &as.Net.FeatureWeights[bAddIdx]
+	bs := &as.Net.FeatureWeights[bSubIdx]
 	for j := 0; j < HiddenSize; j++ {
-		acc.Values[p][j] += as.Net.FeatureWeights[addIdx][j] - as.Net.FeatureWeights[subIdx][j]
+		acc.Values[0][j] += wa[j] - ws[j] - wc[j]
+		acc.Values[1][j] += ba[j] - bs[j] - bc[j]
 	}
 }
