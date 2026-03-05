@@ -28,6 +28,7 @@ Plays as a bot on Lichess: [checkmatego-bot](https://lichess.org/@/checkmatego-b
 | 1.2.0   | 2105   | 2108  |
 | 1.3.0   | 2212   | 2252  |
 | 1.4.0   | 2327   | 2344  |
+| 1.5.0   | 2412   | 2418  |
 
 ## Building
 
