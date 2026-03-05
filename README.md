@@ -38,6 +38,26 @@ make build
 
 This produces a `checkmatego` binary in the project root.
 
+### Build with embedded NNUE
+
+To embed the NNUE network into the binary (no external file needed at runtime):
+
+```
+make build-nnue
+```
+
+Without this flag, NNUE can still be used by providing a network file via the `EvalFile` UCI option.
+
+### Build without SIMD
+
+To build without architecture-specific SIMD optimizations (pure Go fallback):
+
+```
+make build-nosimd
+```
+
+By default, the engine uses optimized SIMD routines for AMD64 (SSE/AVX) and ARM64 (NEON) to accelerate NNUE inference.
+
 ## Usage
 
 Run the binary and communicate via the UCI protocol (stdin/stdout):
@@ -58,7 +78,7 @@ option name Move Overhead type spin default 10 min 0 max 5000
 option name SyzygyPath type string default
 option name UCI_ShowWDL type check default false
 option name UseNNUE type check default true
-option name EvalFile type string default
+option name EvalFile type string default <embedded>
 uciok
 
 isready
@@ -83,7 +103,7 @@ quit
 | SyzygyPath | string | *(empty)* | -- | Path to Syzygy endgame tablebases (not yet implemented) |
 | UCI_ShowWDL | check | false | -- | Show Win/Draw/Loss probabilities in search info |
 | UseNNUE | check | true | -- | Use NNUE evaluation (false = hand-crafted evaluation) |
-| EvalFile | string | *(empty)* | -- | Path to NNUE network file (`.nnue`) |
+| EvalFile | string | `<embedded>` | -- | Path to NNUE network file (`.nnue`); `<embedded>` uses the built-in network (requires `build-nnue`) |
 
 ## Testing
 
