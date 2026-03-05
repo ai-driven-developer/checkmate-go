@@ -12,6 +12,7 @@ import (
 
 	"checkmatego/internal/board"
 	"checkmatego/internal/movegen"
+	"checkmatego/internal/nnue"
 	"checkmatego/internal/search"
 )
 
@@ -61,6 +62,32 @@ func (h *Handler) applyOptions() {
 	h.engine.SetMoveOverhead(time.Duration(h.options.MoveOverhead) * time.Millisecond)
 	h.engine.SetThreads(h.options.Threads)
 	h.engine.SetHash(h.options.Hash)
+	h.loadNetwork()
+}
+
+// loadNetwork loads or clears the NNUE network based on current options.
+func (h *Handler) loadNetwork() {
+	if !h.options.UseNNUE {
+		h.engine.SetNetwork(nil)
+		return
+	}
+
+	var net *nnue.Network
+	var err error
+
+	if h.options.EvalFile == "" || h.options.EvalFile == "<embedded>" {
+		// Use the network embedded at compile time.
+		net, err = nnue.LoadEmbeddedNetwork()
+	} else {
+		net, err = nnue.LoadNetwork(h.options.EvalFile)
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "info string Failed to load NNUE: %v\n", err)
+		h.engine.SetNetwork(nil)
+		return
+	}
+	h.engine.SetNetwork(net)
 }
 
 // Run reads and processes UCI commands until "quit".

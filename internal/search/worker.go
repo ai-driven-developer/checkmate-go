@@ -4,6 +4,7 @@ import (
 	"checkmatego/internal/board"
 	"checkmatego/internal/eval"
 	"checkmatego/internal/movegen"
+	"checkmatego/internal/nnue"
 	"time"
 )
 
@@ -20,6 +21,8 @@ type worker struct {
 	excludedMove board.Move              // move to skip during singular extension search
 	staticEvals  [MaxDepth]int           // static eval per ply for improving detection
 	pawnCache    *eval.PawnCache         // per-worker pawn structure cache
+	net          *nnue.Network           // NNUE network (nil = use HCE)
+	accStack     *nnue.AccumulatorStack  // NNUE accumulator stack
 
 	// Triangular PV table: pvTable[ply] holds the PV starting at that ply.
 	// Eliminates all heap allocations for PV construction in the search loop.
@@ -43,6 +46,46 @@ func (w *worker) getPV() []board.Move {
 	pv := make([]board.Move, n)
 	copy(pv, w.pvTable[0][:n])
 	return pv
+}
+
+// makeMove wraps pos.MakeMove with NNUE accumulator updates.
+func (w *worker) makeMove(m board.Move) {
+	if w.accStack != nil {
+		w.accStack.MakeMove(&w.pos, m)
+	}
+	w.pos.MakeMove(m)
+}
+
+// unmakeMove wraps pos.UnmakeMove with NNUE accumulator pop.
+func (w *worker) unmakeMove(m board.Move) {
+	w.pos.UnmakeMove(m)
+	if w.accStack != nil {
+		w.accStack.UnmakeMove()
+	}
+}
+
+// makeNullMove wraps pos.MakeNullMove with NNUE accumulator push.
+func (w *worker) makeNullMove() {
+	if w.accStack != nil {
+		w.accStack.MakeNullMove()
+	}
+	w.pos.MakeNullMove()
+}
+
+// unmakeNullMove wraps pos.UnmakeNullMove with NNUE accumulator pop.
+func (w *worker) unmakeNullMove() {
+	w.pos.UnmakeNullMove()
+	if w.accStack != nil {
+		w.accStack.UnmakeNullMove()
+	}
+}
+
+// evaluate returns the position score using NNUE or HCE.
+func (w *worker) evaluate() int {
+	if w.net != nil {
+		return w.net.Evaluate(w.accStack.Current(), w.pos.SideToMove)
+	}
+	return eval.EvaluateWithCache(&w.pos, w.pawnCache)
 }
 
 func (w *worker) search(maxDepth int) workerResult {
@@ -219,7 +262,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
 	// Static eval for pruning decisions.
-	staticEval := eval.EvaluateWithCache(&w.pos, w.pawnCache)
+	staticEval := w.evaluate()
 
 	// Track static eval per ply for improving detection.
 	if inCheck {
@@ -238,9 +281,9 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 		if !improving {
 			R++
 		}
-		w.pos.MakeNullMove()
+		w.makeNullMove()
 		nullScore := -w.negamax(depth-1-R, -beta, -beta+1, ply+1, false, board.NullMove)
-		w.pos.UnmakeNullMove()
+		w.unmakeNullMove()
 		if nullScore >= beta {
 			return beta
 		}
@@ -267,10 +310,10 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 				continue
 			}
 
-			w.pos.MakeMove(pcMove)
+			w.makeMove(pcMove)
 			// Shallow search at reduced depth with raised beta window.
 			pcScore := -w.negamax(depth-4, -rBeta, -rBeta+1, ply+1, false, pcMove)
-			w.pos.UnmakeMove(pcMove)
+			w.unmakeMove(pcMove)
 
 			if pcScore >= rBeta {
 				return pcScore
@@ -390,7 +433,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			}
 		}
 
-		w.pos.MakeMove(m)
+		w.makeMove(m)
 
 		// Check extension: search deeper when the move gives check.
 		extension := 0
@@ -406,11 +449,11 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			sBeta := int(scoreFromTT(ttScoreRaw, ply)) - depth*2
 			sDepth := (depth - 1) / 2
 
-			w.pos.UnmakeMove(m)
+			w.unmakeMove(m)
 			w.excludedMove = m
 			seScore := w.negamax(sDepth, sBeta-1, sBeta, ply, false, prevMove)
 			w.excludedMove = board.NullMove
-			w.pos.MakeMove(m)
+			w.makeMove(m)
 
 			if seScore < sBeta {
 				extension = 1
@@ -473,7 +516,7 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 			}
 		}
 
-		w.pos.UnmakeMove(m)
+		w.unmakeMove(m)
 
 		if w.shouldStop() && ply > 0 {
 			return 0
@@ -582,7 +625,7 @@ func (w *worker) storeKiller(m board.Move, ply int) {
 func (w *worker) quiesce(alpha, beta, ply int) int {
 	w.engine.nodes.Add(1)
 
-	standPat := eval.EvaluateWithCache(&w.pos, w.pawnCache)
+	standPat := w.evaluate()
 	if standPat >= beta {
 		return beta
 	}
@@ -622,9 +665,9 @@ func (w *worker) quiesce(alpha, beta, ply int) int {
 			continue
 		}
 
-		w.pos.MakeMove(m)
+		w.makeMove(m)
 		score := -w.quiesce(-beta, -alpha, ply+1)
-		w.pos.UnmakeMove(m)
+		w.unmakeMove(m)
 
 		if score >= beta {
 			return beta

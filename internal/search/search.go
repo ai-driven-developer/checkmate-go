@@ -3,6 +3,7 @@ package search
 import (
 	"checkmatego/internal/board"
 	"checkmatego/internal/eval"
+	"checkmatego/internal/nnue"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,6 +76,7 @@ type Engine struct {
 	moveOverhead time.Duration
 	threads      int
 	tt           *TransTable
+	net          *nnue.Network
 }
 
 func NewEngine() *Engine {
@@ -105,6 +107,11 @@ func (e *Engine) SetThreads(n int) {
 // SetMoveOverhead sets the time reserved for communication overhead.
 func (e *Engine) SetMoveOverhead(d time.Duration) {
 	e.moveOverhead = d
+}
+
+// SetNetwork sets the NNUE network for evaluation. Pass nil to use HCE.
+func (e *Engine) SetNetwork(net *nnue.Network) {
+	e.net = net
 }
 
 // SetInfoCallback sets the callback for search info updates.
@@ -144,6 +151,11 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 				pos:       *pos,
 				id:        id,
 				pawnCache: eval.NewPawnCache(16384),
+				net:       e.net,
+			}
+			if w.net != nil {
+				w.accStack = nnue.NewAccumulatorStack(w.net)
+				w.accStack.Refresh(&w.pos)
 			}
 			results[id] = w.search(maxDepth)
 		}(i)

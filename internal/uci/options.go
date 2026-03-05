@@ -22,6 +22,8 @@ type Options struct {
 	Threads      int
 	SyzygyPath   string
 	ShowWDL      bool
+	UseNNUE      bool
+	EvalFile     string
 }
 
 func DefaultOptions() Options {
@@ -29,6 +31,7 @@ func DefaultOptions() Options {
 		Hash:         64,
 		MoveOverhead: 10,
 		Threads:      1,
+		UseNNUE:      true,
 	}
 }
 
@@ -39,6 +42,12 @@ func (o *Options) PrintOptions(printf func(format string, a ...interface{})) {
 	printf("option name Move Overhead type spin default %d min 0 max 5000\n", o.MoveOverhead)
 	printf("option name SyzygyPath type string default %s\n", o.SyzygyPath)
 	printf("option name UCI_ShowWDL type check default false\n")
+	printf("option name UseNNUE type check default true\n")
+	evalDefault := o.EvalFile
+	if evalDefault == "" {
+		evalDefault = "<embedded>"
+	}
+	printf("option name EvalFile type string default %s\n", evalDefault)
 }
 
 // SetOption applies a UCI setoption command.
@@ -75,6 +84,10 @@ func (o *Options) SetOption(name, value string) error {
 			return fmt.Errorf("Move Overhead value out of range: %d", v)
 		}
 		o.MoveOverhead = v
+	case "usennue":
+		o.UseNNUE = strings.ToLower(value) == "true"
+	case "evalfile":
+		o.EvalFile = value
 	default:
 		// Ignore unknown options per UCI spec.
 	}
