@@ -23,8 +23,10 @@ type Network struct {
 	OutputWeights  [L2Size]int8
 	OutputBias     int32
 
-	// Pre-expanded weights (int8→int32) for faster Evaluate inner loop.
-	// Eliminates type conversion in the hot path.
+	// Pre-expanded weights for faster Evaluate inner loop.
+	// hiddenW16: int8→int16 for SIMD (VPMULLW avoids slow VPMULLD on Zen3).
+	// hiddenW32/outputW32: int8→int32 for the scalar output layer.
+	hiddenW16 [2 * HiddenSize][L2Size]int16
 	hiddenW32 [2 * HiddenSize][L2Size]int32
 	outputW32 [L2Size]int32
 }
@@ -97,6 +99,7 @@ func ReadNetwork(r io.Reader) (*Network, error) {
 func (n *Network) expandWeights() {
 	for i := range n.HiddenWeights {
 		for j := range n.HiddenWeights[i] {
+			n.hiddenW16[i][j] = int16(n.HiddenWeights[i][j])
 			n.hiddenW32[i][j] = int32(n.HiddenWeights[i][j])
 		}
 	}
@@ -114,8 +117,8 @@ func (n *Network) Evaluate(acc *Accumulator, sideToMove board.Color) int {
 	// Hidden layer: ClippedReLU on accumulator, then AVX2 matrix-vector multiply.
 	hidden := n.HiddenBiases // copy [32]int32
 
-	vecEvalPerspective(&hidden[0], &acc.Values[us][0], &n.hiddenW32[0][0])
-	vecEvalPerspective(&hidden[0], &acc.Values[them][0], &n.hiddenW32[HiddenSize][0])
+	vecEvalPerspective(&hidden[0], &acc.Values[us][0], &n.hiddenW16[0][0])
+	vecEvalPerspective(&hidden[0], &acc.Values[them][0], &n.hiddenW16[HiddenSize][0])
 
 	// Output layer: ClippedReLU on hidden, then linear transform.
 	output := n.OutputBias

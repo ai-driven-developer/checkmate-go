@@ -1,27 +1,61 @@
+//go:build amd64
+
 package nnue
 
-// vecAddSub16 computes dst[i] += add[i] - sub[i] for 256 int16 values.
-// Requires AVX2.
-//
-//go:noescape
-func vecAddSub16(dst, add, sub *int16)
+// useAVX2 is set once at init time via CPUID.
+var useAVX2 bool
 
-// vecAdd16 computes dst[i] += src[i] for 256 int16 values.
-// Requires AVX2.
-//
-//go:noescape
-func vecAdd16(dst, src *int16)
+func init() {
+	useAVX2 = asmHasAVX2()
+}
 
-// vecSub16 computes dst[i] -= src[i] for 256 int16 values.
-// Requires AVX2.
-//
-//go:noescape
-func vecSub16(dst, src *int16)
+// Assembly stubs — require AVX2.
 
-// vecEvalPerspective processes one perspective of the NNUE hidden layer.
-// For each of 256 accumulator int16 values, applies ClippedReLU(0, 255),
-// and if non-zero, accumulates: hidden[j] += clamped * weights[i][j] for j=0..31.
-// Requires AVX2.
-//
 //go:noescape
-func vecEvalPerspective(hidden *int32, acc *int16, weights *int32)
+func asmHasAVX2() bool
+
+//go:noescape
+func asmVecAddSub16(dst, add, sub *int16)
+
+//go:noescape
+func asmVecAdd16(dst, src *int16)
+
+//go:noescape
+func asmVecSub16(dst, src *int16)
+
+//go:noescape
+func asmVecEvalPerspective(hidden *int32, acc *int16, weights *int16)
+
+// Dispatch: AVX2 assembly when available, pure Go otherwise.
+
+func vecAddSub16(dst, add, sub *int16) {
+	if useAVX2 {
+		asmVecAddSub16(dst, add, sub)
+	} else {
+		goVecAddSub16(dst, add, sub)
+	}
+}
+
+func vecAdd16(dst, src *int16) {
+	if useAVX2 {
+		asmVecAdd16(dst, src)
+	} else {
+		goVecAdd16(dst, src)
+	}
+}
+
+func vecSub16(dst, src *int16) {
+	if useAVX2 {
+		asmVecSub16(dst, src)
+	} else {
+		goVecSub16(dst, src)
+	}
+}
+
+func vecEvalPerspective(hidden *int32, acc *int16, weights *int16) {
+	if useAVX2 {
+		asmVecEvalPerspective(hidden, acc, weights)
+	} else {
+		goVecEvalPerspective(hidden, acc, weights)
+	}
+}
