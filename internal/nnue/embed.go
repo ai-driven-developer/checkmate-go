@@ -1,3 +1,5 @@
+//go:build embed_nnue
+
 package nnue
 
 import (
