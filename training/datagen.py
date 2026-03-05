@@ -4,8 +4,12 @@ Launches the CheckmateGo engine, plays self-play games with randomized
 openings, and records (position features, eval, game result) into the
 packed binary format defined in dataset.py.
 
+Iteration 2: uses NNUE evaluation by default, adds draw adjudication,
+filters noisy positions, supports opening book FENs, and tracks stats.
+
 Usage:
-    python datagen.py --games 10000 --depth 8 --output data/training.bin
+    python datagen.py --games 10000 --depth 9 --output data/training_v2.bin
+    python datagen.py --games 5000 --openings openings.fen --no-use-nnue
 """
 
 import argparse
@@ -25,6 +29,9 @@ from config import (
     DATAGEN_RANDOM_PLY,
     ADJUDICATION_CP,
     ADJUDICATION_COUNT,
+    DRAW_ADJUDICATION_CP,
+    DRAW_ADJUDICATION_COUNT,
+    SCORE_FILTER_CP,
     MAX_GAME_PLY,
 )
 from dataset import write_record
@@ -64,10 +71,37 @@ def board_features(board):
     return white_feats, black_feats
 
 
+def is_capture(board, uci_move):
+    """Check if a UCI move string is a capture on the given board."""
+    move = chess.Move.from_uci(uci_move)
+    target = board.piece_at(move.to_sq)
+    if target is not None and target.color != board.turn:
+        return True
+    # En passant.
+    piece = board.piece_at(move.from_sq)
+    if piece is not None and piece.piece_type == chess.PAWN:
+        if move.to_sq == board.ep_square:
+            return True
+    return False
+
+
+def load_openings(path):
+    """Load opening FENs from a text file (one FEN per line)."""
+    fens = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                fens.append(line)
+    if not fens:
+        raise ValueError(f"No openings found in {path}")
+    return fens
+
+
 class UCIEngine:
     """Minimal UCI engine interface for data generation."""
 
-    def __init__(self, path):
+    def __init__(self, path, use_nnue=True, eval_file=None):
         self.proc = subprocess.Popen(
             [path],
             stdin=subprocess.PIPE,
@@ -78,8 +112,12 @@ class UCIEngine:
         )
         self._send("uci")
         self._wait_for("uciok")
-        # Use HCE for initial training data.
-        self._send("setoption name UseNNUE value false")
+        if use_nnue:
+            self._send("setoption name UseNNUE value true")
+            if eval_file:
+                self._send(f"setoption name EvalFile value {eval_file}")
+        else:
+            self._send("setoption name UseNNUE value false")
         self._send("isready")
         self._wait_for("readyok")
 
@@ -136,22 +174,32 @@ class UCIEngine:
             self.proc.kill()
 
 
-def play_game(engine, depth, random_ply, game_id):
+def play_game(engine, depth, random_ply, game_id, openings=None):
     """Play one self-play game and collect training samples.
 
-    Returns list of (white_features, black_features, stm, score) tuples
-    and the game result (1=White, 0=Draw, -1=Black).
+    Returns (samples, result, stats) where:
+      samples: list of (white_features, black_features, stm, score)
+      result: 1=White, 0=Draw, -1=Black
+      stats: dict with game statistics
     """
     board = chess.Board()
-    samples = []
-    adj_count = 0
+    stats = {"plies": 0, "filtered": 0}
 
-    # Random opening moves.
-    for _ in range(random_ply):
-        moves = list(board.legal_moves)
-        if not moves:
-            break
-        board.push(random.choice(moves))
+    if openings:
+        # Start from a random opening position.
+        fen = random.choice(openings)
+        board = chess.Board(fen)
+    else:
+        # Random opening moves.
+        for _ in range(random_ply):
+            moves = list(board.legal_moves)
+            if not moves:
+                break
+            board.push(random.choice(moves))
+
+    samples = []
+    win_adj_count = 0
+    draw_adj_count = 0
 
     # Play game with engine evaluation.
     while not board.is_game_over(claim_draw=True) and board.ply() < MAX_GAME_PLY:
@@ -160,27 +208,46 @@ def play_game(engine, depth, random_ply, game_id):
         if score_cp is None or bestmove_uci is None:
             break
 
-        # Record position (skip positions in check for cleaner data).
-        if not board.is_check():
+        # Record position with quality filters.
+        skip = False
+        if board.is_check():
+            skip = True
+        elif abs(score_cp) > SCORE_FILTER_CP:
+            skip = True
+            stats["filtered"] += 1
+        elif is_capture(board, bestmove_uci):
+            skip = True
+            stats["filtered"] += 1
+
+        if not skip:
             white_feats, black_feats = board_features(board)
             stm = 0 if board.turn == chess.WHITE else 1
             # Score from White's perspective.
             score_white = score_cp if board.turn == chess.WHITE else -score_cp
             samples.append((white_feats, black_feats, stm, score_white))
 
-        # Check adjudication.
+        # Win adjudication.
         if abs(score_cp) >= ADJUDICATION_CP:
-            adj_count += 1
-            if adj_count >= ADJUDICATION_COUNT:
-                # Adjudicate: winner is the side with positive eval.
+            win_adj_count += 1
+            draw_adj_count = 0
+            if win_adj_count >= ADJUDICATION_COUNT:
                 stm_color = chess.WHITE if board.turn == chess.WHITE else chess.BLACK
                 if score_cp > 0:
                     result = 1 if stm_color == chess.WHITE else -1
                 else:
                     result = -1 if stm_color == chess.WHITE else 1
-                return samples, result
+                stats["plies"] = board.ply()
+                return samples, result, stats
+        # Draw adjudication.
+        elif abs(score_cp) <= DRAW_ADJUDICATION_CP:
+            draw_adj_count += 1
+            win_adj_count = 0
+            if draw_adj_count >= DRAW_ADJUDICATION_COUNT:
+                stats["plies"] = board.ply()
+                return samples, 0, stats
         else:
-            adj_count = 0
+            win_adj_count = 0
+            draw_adj_count = 0
 
         # Play the best move.
         try:
@@ -199,31 +266,57 @@ def play_game(engine, depth, random_ply, game_id):
     else:
         result = 0
 
-    return samples, result
+    stats["plies"] = board.ply()
+    return samples, result, stats
 
 
 def generate_chunk(args):
     """Generate training data for a chunk of games (for multiprocessing)."""
-    engine_path, num_games, depth, random_ply, chunk_id, output_path = args
+    (engine_path, num_games, depth, random_ply, chunk_id, output_path,
+     use_nnue, eval_file, openings, append) = args
 
-    engine = UCIEngine(engine_path)
+    engine = UCIEngine(engine_path, use_nnue=use_nnue, eval_file=eval_file)
     total_positions = 0
+    wins, draws, losses = 0, 0, 0
+    total_plies = 0
+    total_filtered = 0
 
-    with open(output_path, "wb") as f:
+    mode = "ab" if append else "wb"
+    with open(output_path, mode) as f:
         for i in range(num_games):
-            samples, result = play_game(engine, depth, random_ply, i)
+            samples, result, stats = play_game(
+                engine, depth, random_ply, i, openings=openings,
+            )
 
             # Write all positions from this game with the final result.
             for white_feats, black_feats, stm, score in samples:
                 write_record(f, white_feats, black_feats, stm, score, result)
                 total_positions += 1
 
+            # Track stats.
+            if result == 1:
+                wins += 1
+            elif result == -1:
+                losses += 1
+            else:
+                draws += 1
+            total_plies += stats["plies"]
+            total_filtered += stats["filtered"]
+
             if (i + 1) % 100 == 0:
                 print(f"  [Worker {chunk_id}] {i + 1}/{num_games} games, "
                       f"{total_positions} positions", flush=True)
 
     engine.quit()
-    return total_positions
+    return {
+        "positions": total_positions,
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "plies": total_plies,
+        "filtered": total_filtered,
+        "games": num_games,
+    }
 
 
 def main():
@@ -240,6 +333,16 @@ def main():
                         help="Output binary file path")
     parser.add_argument("--workers", type=int, default=1,
                         help="Number of parallel workers")
+    parser.add_argument("--use-nnue", action="store_true", default=True,
+                        help="Use NNUE evaluation (default: true)")
+    parser.add_argument("--no-use-nnue", dest="use_nnue", action="store_false",
+                        help="Use HCE evaluation instead of NNUE")
+    parser.add_argument("--eval-file", default=None,
+                        help="Path to .nnue network file (default: embedded)")
+    parser.add_argument("--openings", default=None,
+                        help="Path to opening FENs file (one per line)")
+    parser.add_argument("--append", action="store_true",
+                        help="Append to output file instead of overwriting")
     args = parser.parse_args()
 
     # Verify engine exists.
@@ -248,20 +351,31 @@ def main():
         print(f"Build it first: cd .. && make build", file=sys.stderr)
         sys.exit(1)
 
+    # Load openings if provided.
+    openings = None
+    if args.openings:
+        openings = load_openings(args.openings)
+        print(f"Loaded {len(openings)} opening positions")
+
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
 
+    eval_mode = "NNUE" if args.use_nnue else "HCE"
     print(f"Generating {args.games} games at depth {args.depth} "
-          f"with {args.workers} worker(s)")
+          f"with {args.workers} worker(s) [{eval_mode}]")
     print(f"Engine: {args.engine}")
-    print(f"Output: {args.output}")
+    if args.eval_file:
+        print(f"Network: {args.eval_file}")
+    print(f"Output: {args.output}{' (append)' if args.append else ''}")
     start = time.time()
 
     if args.workers <= 1:
         # Single-process mode.
-        total = generate_chunk((
+        result = generate_chunk((
             args.engine, args.games, args.depth, args.random_ply,
-            0, args.output,
+            0, args.output, args.use_nnue, args.eval_file,
+            openings, args.append,
         ))
+        results = [result]
     else:
         # Multi-process: each worker writes to a temp file, then merge.
         games_per_worker = args.games // args.workers
@@ -273,15 +387,15 @@ def main():
             chunk_path = f"{args.output}.part{w}"
             chunk_args.append((
                 args.engine, n, args.depth, args.random_ply, w, chunk_path,
+                args.use_nnue, args.eval_file, openings, False,
             ))
 
         with Pool(args.workers) as pool:
             results = pool.map(generate_chunk, chunk_args)
 
-        total = sum(results)
-
         # Merge part files.
-        with open(args.output, "wb") as out:
+        mode = "ab" if args.append else "wb"
+        with open(args.output, mode) as out:
             for w in range(args.workers):
                 chunk_path = f"{args.output}.part{w}"
                 with open(chunk_path, "rb") as part:
@@ -292,9 +406,31 @@ def main():
                         out.write(data)
                 os.remove(chunk_path)
 
+    # Aggregate and print statistics.
+    total_pos = sum(r["positions"] for r in results)
+    total_wins = sum(r["wins"] for r in results)
+    total_draws = sum(r["draws"] for r in results)
+    total_losses = sum(r["losses"] for r in results)
+    total_plies = sum(r["plies"] for r in results)
+    total_filtered = sum(r["filtered"] for r in results)
+    total_games = sum(r["games"] for r in results)
+
     elapsed = time.time() - start
-    print(f"\nDone: {total} positions from {args.games} games "
-          f"in {elapsed:.1f}s ({total / max(elapsed, 1):.0f} pos/s)")
+    avg_ply = total_plies / max(total_games, 1)
+    avg_pos = total_pos / max(total_games, 1)
+
+    print(f"\n{'=' * 60}")
+    print(f"Done: {total_pos} positions from {total_games} games "
+          f"in {elapsed:.1f}s ({total_pos / max(elapsed, 1):.0f} pos/s)")
+    print(f"Results: +{total_wins} ={total_draws} -{total_losses} "
+          f"({total_wins / max(total_games, 1) * 100:.1f}% / "
+          f"{total_draws / max(total_games, 1) * 100:.1f}% / "
+          f"{total_losses / max(total_games, 1) * 100:.1f}%)")
+    print(f"Avg game length: {avg_ply:.1f} plies, "
+          f"avg positions/game: {avg_pos:.1f}")
+    if total_filtered > 0:
+        print(f"Filtered positions: {total_filtered} "
+              f"(captures + extreme evals)")
 
 
 if __name__ == "__main__":

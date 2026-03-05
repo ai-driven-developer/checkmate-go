@@ -39,11 +39,14 @@ PREFETCH_FACTOR = 4     # batches pre-loaded per worker
 # Data generation
 # ---------------------------------------------------------------------------
 ENGINE_PATH = "../checkmatego"
-DATAGEN_DEPTH = 8
+DATAGEN_DEPTH = 9
 DATAGEN_GAMES = 10000
 DATAGEN_RANDOM_PLY = 8          # random moves at game start for variety
 ADJUDICATION_CP = 1000          # adjudicate when |eval| exceeds this
 ADJUDICATION_COUNT = 5          # for this many consecutive moves
+DRAW_ADJUDICATION_CP = 10       # adjudicate draw when |eval| below this
+DRAW_ADJUDICATION_COUNT = 8     # for this many consecutive moves
+SCORE_FILTER_CP = 10000         # skip positions with |eval| above this
 MAX_GAME_PLY = 300              # max plies per game
 
 # ---------------------------------------------------------------------------
