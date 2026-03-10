@@ -261,19 +261,17 @@ func (w *worker) negamax(depth, alpha, beta, ply int, nullAllowed bool, prevMove
 
 	inCheck := movegen.IsSquareAttacked(&w.pos, w.pos.KingSquare(w.pos.SideToMove), w.pos.SideToMove.Other())
 
-	// Static eval for pruning decisions.
-	staticEval := w.evaluate()
-
-	// Track static eval per ply for improving detection.
+	// Static eval for pruning decisions (skip when in check — not used).
+	var staticEval int
+	improving := false
 	if inCheck {
 		w.staticEvals[ply] = -Infinity
 	} else {
+		staticEval = w.evaluate()
 		w.staticEvals[ply] = staticEval
+		improving = ply >= 2 && w.staticEvals[ply-2] != -Infinity &&
+			staticEval > w.staticEvals[ply-2]
 	}
-
-	// Improving flag: position eval is better than 2 plies ago (same side).
-	improving := !inCheck && ply >= 2 && w.staticEvals[ply-2] != -Infinity &&
-		staticEval > w.staticEvals[ply-2]
 
 	// Null-move pruning (skip during singular extension search).
 	if nullAllowed && !isPV && !inCheck && depth > 3 && w.excludedMove == board.NullMove {

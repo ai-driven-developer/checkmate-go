@@ -5,6 +5,16 @@ import "unsafe"
 // Pure Go implementations of SIMD operations.
 // Used as fallback on non-amd64 platforms or when AVX2 is unavailable.
 
+func goVecSubAddSub16(dst, add, sub1, sub2 *int16) {
+	d := unsafe.Slice(dst, HiddenSize)
+	a := unsafe.Slice(add, HiddenSize)
+	s1 := unsafe.Slice(sub1, HiddenSize)
+	s2 := unsafe.Slice(sub2, HiddenSize)
+	for i := 0; i < HiddenSize; i++ {
+		d[i] += a[i] - s1[i] - s2[i]
+	}
+}
+
 func goVecAddSub16(dst, add, sub *int16) {
 	d := unsafe.Slice(dst, HiddenSize)
 	a := unsafe.Slice(add, HiddenSize)

@@ -26,7 +26,7 @@ type Position struct {
 	PSTMG    int    // incremental middlegame PST score (from White's perspective)
 	PSTEG    int    // incremental endgame PST score (from White's perspective)
 
-	stateHistory [512]stateInfo
+	stateHistory [1024]stateInfo
 	stateIdx     int
 }
 

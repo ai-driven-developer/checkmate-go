@@ -16,19 +16,20 @@ import (
 //   - Hidden layer: [512][32] int8 weights + [32] int32 biases
 //   - Output layer: [32] int8 weights + int32 bias
 type Network struct {
-	FeatureWeights [InputSize][HiddenSize]int16
-	FeatureBiases  [HiddenSize]int16
-	HiddenWeights  [2 * HiddenSize][L2Size]int8
-	HiddenBiases   [L2Size]int32
-	OutputWeights  [L2Size]int8
-	OutputBias     int32
+	// === Hot fields (accessed every Evaluate call) ===
+	// Pre-expanded weights for the forward pass inner loop.
+	hiddenW16 [2 * HiddenSize][L2Size]int16 // 32KB — SIMD eval
+	HiddenBiases [L2Size]int32              // 128B — copied per eval
+	outputW32    [L2Size]int32              // 128B — output layer
+	OutputBias   int32
 
-	// Pre-expanded weights for faster Evaluate inner loop.
-	// hiddenW16: int8→int16 for SIMD (VPMULLW avoids slow VPMULLD on Zen3).
-	// hiddenW32/outputW32: int8→int32 for the scalar output layer.
-	hiddenW16 [2 * HiddenSize][L2Size]int16
-	hiddenW32 [2 * HiddenSize][L2Size]int32
-	outputW32 [L2Size]int32
+	// === Warm fields (accessed on accumulator updates) ===
+	FeatureWeights [InputSize][HiddenSize]int16 // 384KB — random access per move
+	FeatureBiases  [HiddenSize]int16            // 512B — Refresh only
+
+	// === Cold fields (only used at load time) ===
+	HiddenWeights [2 * HiddenSize][L2Size]int8
+	OutputWeights [L2Size]int8
 }
 
 // Magic bytes and version for the binary network format.
@@ -100,7 +101,6 @@ func (n *Network) expandWeights() {
 	for i := range n.HiddenWeights {
 		for j := range n.HiddenWeights[i] {
 			n.hiddenW16[i][j] = int16(n.HiddenWeights[i][j])
-			n.hiddenW32[i][j] = int32(n.HiddenWeights[i][j])
 		}
 	}
 	for j := range n.OutputWeights {

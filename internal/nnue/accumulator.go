@@ -2,7 +2,7 @@ package nnue
 
 import "checkmatego/internal/board"
 
-const maxPly = 512
+const maxPly = 128
 
 // Accumulator stores the feature transformer output for both perspectives.
 type Accumulator struct {
@@ -84,21 +84,14 @@ func (as *AccumulatorStack) addSubBoth(wAddIdx, wSubIdx, bAddIdx, bSubIdx int) {
 	vecAddSub16(&acc.Values[1][0], &as.Net.FeatureWeights[bAddIdx][0], &as.Net.FeatureWeights[bSubIdx][0])
 }
 
-// subAddSubBoth combines removePiece + movePiece into a single loop for captures.
-// Subtracts captured piece and moves our piece in one pass over 256 elements.
+// subAddSubBoth combines removePiece + movePiece for captures using SIMD.
+// Subtracts captured piece and moves our piece for both perspectives.
+// Uses a single-pass SIMD: dst += add - sub - cap (3 arrays in 1 loop).
 func (as *AccumulatorStack) subAddSubBoth(
 	wCapIdx, bCapIdx int, // captured piece feature indices
 	wAddIdx, wSubIdx, bAddIdx, bSubIdx int, // moving piece add/sub indices
 ) {
 	acc := &as.stack[as.idx]
-	wc := &as.Net.FeatureWeights[wCapIdx]
-	bc := &as.Net.FeatureWeights[bCapIdx]
-	wa := &as.Net.FeatureWeights[wAddIdx]
-	ws := &as.Net.FeatureWeights[wSubIdx]
-	ba := &as.Net.FeatureWeights[bAddIdx]
-	bs := &as.Net.FeatureWeights[bSubIdx]
-	for j := 0; j < HiddenSize; j++ {
-		acc.Values[0][j] += wa[j] - ws[j] - wc[j]
-		acc.Values[1][j] += ba[j] - bs[j] - bc[j]
-	}
+	vecSubAddSub16(&acc.Values[0][0], &as.Net.FeatureWeights[wAddIdx][0], &as.Net.FeatureWeights[wSubIdx][0], &as.Net.FeatureWeights[wCapIdx][0])
+	vecSubAddSub16(&acc.Values[1][0], &as.Net.FeatureWeights[bAddIdx][0], &as.Net.FeatureWeights[bSubIdx][0], &as.Net.FeatureWeights[bCapIdx][0])
 }

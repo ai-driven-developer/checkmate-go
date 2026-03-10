@@ -4,6 +4,10 @@ package nnue
 
 // On non-amd64 platforms, dispatch directly to pure Go implementations.
 
+func vecSubAddSub16(dst, add, sub1, sub2 *int16) {
+	goVecSubAddSub16(dst, add, sub1, sub2)
+}
+
 func vecAddSub16(dst, add, sub *int16) {
 	goVecAddSub16(dst, add, sub)
 }

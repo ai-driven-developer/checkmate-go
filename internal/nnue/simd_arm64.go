@@ -16,6 +16,11 @@ func asmVecSub16(dst, src *int16)
 //go:noescape
 func asmVecEvalPerspective(hidden *int32, acc *int16, weights *int16)
 
+// vecSubAddSub16 falls back to Go on ARM64 (NEON version not yet implemented).
+func vecSubAddSub16(dst, add, sub1, sub2 *int16) {
+	goVecSubAddSub16(dst, add, sub1, sub2)
+}
+
 func vecAddSub16(dst, add, sub *int16) {
 	asmVecAddSub16(dst, add, sub)
 }

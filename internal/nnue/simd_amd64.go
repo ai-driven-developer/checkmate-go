@@ -24,9 +24,20 @@ func asmVecAdd16(dst, src *int16)
 func asmVecSub16(dst, src *int16)
 
 //go:noescape
+func asmVecSubAddSub16(dst, add, sub1, sub2 *int16)
+
+//go:noescape
 func asmVecEvalPerspective(hidden *int32, acc *int16, weights *int16)
 
 // Dispatch: AVX2 assembly when available, pure Go otherwise.
+
+func vecSubAddSub16(dst, add, sub1, sub2 *int16) {
+	if useAVX2 {
+		asmVecSubAddSub16(dst, add, sub1, sub2)
+	} else {
+		goVecSubAddSub16(dst, add, sub1, sub2)
+	}
+}
 
 func vecAddSub16(dst, add, sub *int16) {
 	if useAVX2 {
