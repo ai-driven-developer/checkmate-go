@@ -11,7 +11,9 @@ Binary record format (136 bytes, little-endian):
   [72:136]:  u16[32]  black feature indices (0xFFFF = unused)
 """
 
+import argparse
 import struct
+import sys
 
 import numpy as np
 import torch
@@ -215,3 +217,106 @@ def write_record(f, white_features, black_features, stm, score, result):
     # Black features (padded to 32 with 0xFFFF).
     padded_b = list(black_features) + [UNUSED_FEATURE] * (MAX_FEATURES - n_black)
     f.write(struct.pack(_FEATURES_FMT, *padded_b))
+
+
+def count_unique(path):
+    """Count unique positions in a binary data file.
+
+    A position is identified by STM (byte 2) + feature indices (bytes 8:136).
+    Score and result are ignored since the same position can appear with
+    different evals.
+    """
+    data = np.memmap(path, dtype=np.uint8, mode="r")
+    if len(data) % RECORD_SIZE != 0:
+        raise ValueError(f"File size {len(data)} is not a multiple of {RECORD_SIZE}")
+    n = len(data) // RECORD_SIZE
+    records = data.reshape(n, RECORD_SIZE)
+    # Position identity: stm (col 2) + feature indices (cols 8..136).
+    keys = np.empty((n, 1 + 128), dtype=np.uint8)
+    keys[:, 0] = records[:, 2]
+    keys[:, 1:] = records[:, 8:136]
+    # Use structured view for np.unique.
+    key_view = keys.view(np.dtype((np.void, keys.shape[1])))
+    unique_count = len(np.unique(key_view))
+    return n, unique_count
+
+
+def merge_files(path_a, path_b, output_path, deduplicate=False):
+    """Merge two binary data files.
+
+    Args:
+        path_a: first input file path
+        path_b: second input file path
+        output_path: output file path
+        deduplicate: if True, remove duplicate positions (keeps first occurrence)
+    """
+    data_a = np.memmap(path_a, dtype=np.uint8, mode="r")
+    data_b = np.memmap(path_b, dtype=np.uint8, mode="r")
+    for label, d in [("A", data_a), ("B", data_b)]:
+        if len(d) % RECORD_SIZE != 0:
+            raise ValueError(f"File {label} size {len(d)} is not a multiple of {RECORD_SIZE}")
+
+    n_a = len(data_a) // RECORD_SIZE
+    n_b = len(data_b) // RECORD_SIZE
+    combined = np.concatenate(
+        [data_a.reshape(n_a, RECORD_SIZE), data_b.reshape(n_b, RECORD_SIZE)]
+    )
+
+    if deduplicate:
+        keys = np.empty((len(combined), 1 + 128), dtype=np.uint8)
+        keys[:, 0] = combined[:, 2]
+        keys[:, 1:] = combined[:, 8:136]
+        key_view = keys.view(np.dtype((np.void, keys.shape[1])))
+        _, unique_idx = np.unique(key_view, return_index=True)
+        unique_idx.sort()  # preserve original order
+        combined = combined[unique_idx]
+
+    with open(output_path, "wb") as f:
+        f.write(combined.tobytes())
+
+    return n_a, n_b, len(combined)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Dataset utilities")
+    sub = parser.add_subparsers(dest="command")
+
+    # --- count-unique ---
+    p_count = sub.add_parser("count-unique", help="Count unique positions in a data file")
+    p_count.add_argument("file", help="Path to binary data file")
+
+    # --- merge ---
+    p_merge = sub.add_parser("merge", help="Merge two data files")
+    p_merge.add_argument("file_a", help="First input file")
+    p_merge.add_argument("file_b", help="Second input file")
+    p_merge.add_argument("-o", "--output", required=True, help="Output file path")
+    p_merge.add_argument(
+        "--deduplicate", action="store_true",
+        help="Remove duplicate positions (keeps first occurrence)",
+    )
+
+    args = parser.parse_args()
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.command == "count-unique":
+        total, unique = count_unique(args.file)
+        print(f"Total positions:  {total:>12,}")
+        print(f"Unique positions: {unique:>12,}")
+        print(f"Duplicates:       {total - unique:>12,}")
+        print(f"Unique ratio:     {unique / total:.4%}" if total else "")
+
+    elif args.command == "merge":
+        n_a, n_b, n_out = merge_files(
+            args.file_a, args.file_b, args.output, args.deduplicate,
+        )
+        print(f"File A: {n_a:>12,} positions")
+        print(f"File B: {n_b:>12,} positions")
+        print(f"Output: {n_out:>12,} positions")
+        if args.deduplicate:
+            print(f"Removed {n_a + n_b - n_out:,} duplicates")
+
+
+if __name__ == "__main__":
+    main()
