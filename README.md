@@ -50,15 +50,21 @@ make build-nnue
 
 Without this flag, NNUE can still be used by providing a network file via the `EvalFile` UCI option.
 
-### Build without SIMD
+### Build with SIMD
 
-To build without architecture-specific SIMD optimizations (pure Go fallback):
+To build with architecture-specific SIMD optimizations (AVX2 on AMD64, NEON on ARM64):
 
 ```
-make build-nosimd
+make build-simd
 ```
 
-By default, the engine uses optimized SIMD routines for AMD64 (SSE/AVX) and ARM64 (NEON) to accelerate NNUE inference.
+Or with embedded NNUE and SIMD together:
+
+```
+make nnue-simd
+```
+
+By default, the engine uses pure Go implementations. The `simd` build tag enables optimized assembly routines.
 
 ## Usage
 

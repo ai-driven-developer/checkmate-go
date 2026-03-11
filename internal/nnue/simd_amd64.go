@@ -1,4 +1,4 @@
-//go:build amd64 && !nosimd
+//go:build amd64 && simd
 
 package nnue
 

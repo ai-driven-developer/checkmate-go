@@ -1,4 +1,4 @@
-.PHONY: build build-nnue build-nosimd test bench perft clean
+.PHONY: build build-nnue build-simd test bench perft clean
 
 BINARY = checkmatego
 
@@ -8,8 +8,11 @@ build:
 build-nnue:
 	go build -tags embed_nnue -o $(BINARY) ./cmd/checkmatego/
 
-build-nosimd:
-	go build -tags nosimd -o $(BINARY) ./cmd/checkmatego/
+build-simd:
+	go build -tags simd -o $(BINARY) ./cmd/checkmatego/
+
+nnue-simd:
+	go build -tags 'embed_nnue simd' -o $(BINARY) ./cmd/checkmatego/
 
 test:
 	go test ./internal/... -v -timeout 120s
