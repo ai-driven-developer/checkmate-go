@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"checkmatego/internal/board"
@@ -24,11 +25,12 @@ const (
 
 // Handler manages the UCI protocol.
 type Handler struct {
-	pos       *board.Position
-	engine    *search.Engine
-	options   Options
-	input     io.Reader
-	output    io.Writer
+	mu         sync.Mutex
+	pos        *board.Position
+	engine     *search.Engine
+	options    Options
+	input      io.Reader
+	output     io.Writer
 	searchDone chan struct{}
 }
 
@@ -54,7 +56,9 @@ func NewHandlerWithIO(in io.Reader, out io.Writer) *Handler {
 }
 
 func (h *Handler) printf(format string, a ...interface{}) {
+	h.mu.Lock()
 	fmt.Fprintf(h.output, format, a...)
+	h.mu.Unlock()
 }
 
 // applyOptions propagates current option values to the engine.
@@ -152,6 +156,7 @@ func (h *Handler) cmdIsReady() {
 }
 
 func (h *Handler) cmdNewGame() {
+	h.cmdStop()
 	h.pos = board.NewPosition()
 	h.engine = search.NewEngine()
 	h.applyOptions()
@@ -203,6 +208,7 @@ func (h *Handler) cmdPosition(tokens []string) {
 }
 
 func (h *Handler) cmdGo(tokens []string) {
+	h.cmdStop()
 	limits := search.SearchLimits{}
 	for i := 0; i < len(tokens); i++ {
 		switch tokens[i] {
