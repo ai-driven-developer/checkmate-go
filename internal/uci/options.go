@@ -22,6 +22,7 @@ type Options struct {
 	Threads      int
 	SyzygyPath   string
 	ShowWDL      bool
+	Ponder       bool
 	UseNNUE      bool
 	EvalFile     string
 }
@@ -41,6 +42,7 @@ func (o *Options) PrintOptions(printf func(format string, a ...interface{})) {
 	printf("option name Threads type spin default %d min 1 max 128\n", o.Threads)
 	printf("option name Move Overhead type spin default %d min 0 max 5000\n", o.MoveOverhead)
 	printf("option name SyzygyPath type string default %s\n", o.SyzygyPath)
+	printf("option name Ponder type check default false\n")
 	printf("option name UCI_ShowWDL type check default false\n")
 	printf("option name UseNNUE type check default true\n")
 	evalDefault := o.EvalFile
@@ -73,6 +75,8 @@ func (o *Options) SetOption(name, value string) error {
 		o.Threads = v
 	case "syzygypath":
 		o.SyzygyPath = value
+	case "ponder":
+		o.Ponder = strings.ToLower(value) == "true"
 	case "uci_showwdl":
 		o.ShowWDL = strings.ToLower(value) == "true"
 	case "move overhead":

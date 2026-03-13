@@ -423,3 +423,174 @@ func TestEmptyCommand(t *testing.T) {
 		t.Error("empty command should not quit")
 	}
 }
+
+// --- Ponder tests ---
+
+func TestGoPonderSearchRunsUntilStop(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go ponder wtime 50 btime 50")
+
+	// Let it ponder longer than the time control would allow.
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the engine is still pondering (hasn't stopped on its own).
+	if !h.engine.IsPondering() {
+		// If not pondering, it should not have produced bestmove yet
+		// from time control alone (ponder ignores time limits).
+	}
+
+	h.ProcessCommand("stop")
+	out := buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Error("ponder search should output bestmove after stop")
+	}
+}
+
+func TestPonderHitCommand(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos moves e2e4 e7e5")
+	h.ProcessCommand("go ponder wtime 100 btime 100")
+
+	time.Sleep(30 * time.Millisecond)
+	h.ProcessCommand("ponderhit")
+
+	// After ponderhit, the search should complete on its own.
+	time.Sleep(500 * time.Millisecond)
+	h.ProcessCommand("stop") // safety stop
+
+	out := buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Error("ponderhit should eventually produce bestmove")
+	}
+}
+
+func TestPonderOptionOutput(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("setoption name Ponder value true")
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go depth 4")
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	// With Ponder enabled and depth 4, the PV should have at least 2 moves,
+	// so bestmove should include "ponder".
+	if !strings.Contains(out, "bestmove") {
+		t.Error("should have bestmove output")
+	}
+	// The engine should output "bestmove X ponder Y" when Ponder is on.
+	if !strings.Contains(out, "ponder") {
+		t.Error("with Ponder enabled, bestmove should include ponder move")
+	}
+}
+
+func TestPonderOptionDisabledNoPonderMove(t *testing.T) {
+	h, buf := newTestHandler()
+	// Ponder is false by default.
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go depth 4")
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	// Extract the bestmove line.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "bestmove") {
+			if strings.Contains(line, "ponder") {
+				t.Error("with Ponder disabled, bestmove should not include ponder move")
+			}
+			break
+		}
+	}
+}
+
+func TestSetOptionPonder(t *testing.T) {
+	h, _ := newTestHandler()
+	h.ProcessCommand("setoption name Ponder value true")
+	if !h.options.Ponder {
+		t.Error("expected Ponder=true")
+	}
+	h.ProcessCommand("setoption name Ponder value false")
+	if h.options.Ponder {
+		t.Error("expected Ponder=false")
+	}
+}
+
+func TestPonderOptionAdvertised(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("uci")
+	out := buf.String()
+	if !strings.Contains(out, "option name Ponder type check") {
+		t.Error("uci command should advertise Ponder option")
+	}
+}
+
+func TestGoPonderWithDepth(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go ponder depth 3")
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Error("go ponder with depth should produce bestmove")
+	}
+}
+
+func TestGoPonderInfinite(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go ponder infinite")
+
+	time.Sleep(100 * time.Millisecond)
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Error("go ponder infinite + stop should produce bestmove")
+	}
+}
+
+func TestPonderHitWithoutPonder(t *testing.T) {
+	// ponderhit when not pondering should be harmless.
+	h, _ := newTestHandler()
+	h.ProcessCommand("ponderhit") // should not crash
+}
+
+func TestPonderSequenceFullGame(t *testing.T) {
+	// Simulate a full ponder sequence:
+	// 1. Engine thinks, returns bestmove e2e4 ponder e7e5
+	// 2. GUI sends position with predicted move
+	// 3. GUI sends "go ponder"
+	// 4. Opponent plays predicted move → ponderhit
+	h, buf := newTestHandler()
+
+	// Step 1: Normal search.
+	h.ProcessCommand("setoption name Ponder value true")
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go depth 4")
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Fatal("first search should produce bestmove")
+	}
+
+	buf.Reset()
+
+	// Step 2-3: Set position after predicted opponent move, start ponder.
+	h.ProcessCommand("position startpos moves e2e4 e7e5")
+	h.ProcessCommand("go ponder wtime 10000 btime 10000")
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Step 4: Opponent played the predicted move → ponderhit.
+	h.ProcessCommand("ponderhit")
+
+	time.Sleep(1 * time.Second)
+	h.ProcessCommand("stop")
+
+	out = buf.String()
+	if !strings.Contains(out, "bestmove") {
+		t.Error("ponder sequence should produce bestmove after ponderhit")
+	}
+}

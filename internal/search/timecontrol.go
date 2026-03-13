@@ -29,6 +29,33 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 	tm.stabilityCount = 0
 	tm.prevScore = 0
 
+	if limits.Ponder {
+		tm.optimumTime = 24 * time.Hour
+		tm.maximumTime = 24 * time.Hour
+		return
+	}
+
+	if limits.Infinite || limits.Depth > 0 {
+		tm.optimumTime = 24 * time.Hour
+		tm.maximumTime = 24 * time.Hour
+		return
+	}
+
+	tm.calcTimeLimits(limits, color, overhead)
+}
+
+// reinitForPonderHit recalculates time limits without resetting stability
+// tracking. This preserves bestMove, stabilityCount, and prevScore that
+// were accumulated during the ponder phase, so that the soft time check
+// after ponderhit does not treat the position as "unstable" and does not
+// trigger false score-drop extensions.
+func (tm *TimeManager) reinitForPonderHit(limits SearchLimits, color board.Color, overhead time.Duration) {
+	tm.startTime = time.Now()
+	tm.calcTimeLimits(limits, color, overhead)
+}
+
+// calcTimeLimits computes optimum and maximum time from the given limits.
+func (tm *TimeManager) calcTimeLimits(limits SearchLimits, color board.Color, overhead time.Duration) {
 	if limits.MoveTime > 0 {
 		t := limits.MoveTime - overhead
 		if t < time.Millisecond {
@@ -36,12 +63,6 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 		}
 		tm.optimumTime = t
 		tm.maximumTime = t
-		return
-	}
-
-	if limits.Infinite || limits.Depth > 0 {
-		tm.optimumTime = 24 * time.Hour
-		tm.maximumTime = 24 * time.Hour
 		return
 	}
 

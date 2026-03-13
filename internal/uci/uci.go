@@ -32,6 +32,7 @@ type Handler struct {
 	input      io.Reader
 	output     io.Writer
 	searchDone chan struct{}
+	ponderMove board.Move // predicted opponent move for ponder output
 }
 
 // NewHandler creates a UCI handler with default settings.
@@ -131,6 +132,8 @@ func (h *Handler) ProcessCommand(line string) bool {
 		h.cmdGo(tokens[1:])
 	case "stop":
 		h.cmdStop()
+	case "ponderhit":
+		h.cmdPonderHit()
 	case "quit":
 		h.cmdStop()
 		return true
@@ -259,6 +262,8 @@ func (h *Handler) cmdGo(tokens []string) {
 			}
 		case "infinite":
 			limits.Infinite = true
+		case "ponder":
+			limits.Ponder = true
 		case "perft":
 			if i+1 < len(tokens) {
 				depth, _ := strconv.Atoi(tokens[i+1])
@@ -268,9 +273,13 @@ func (h *Handler) cmdGo(tokens []string) {
 		}
 	}
 
-	// Set up info callback.
+	// Set up info callback, capturing the ponder move from the PV.
+	h.ponderMove = board.NullMove
 	h.engine.SetInfoCallback(func(info search.SearchInfo) {
 		h.printInfo(info)
+		if len(info.PV) >= 2 {
+			h.ponderMove = info.PV[1]
+		}
 	})
 
 	// Run search in goroutine.
@@ -279,7 +288,11 @@ func (h *Handler) cmdGo(tokens []string) {
 	go func() {
 		posCopy := h.pos.Copy()
 		bestMove := h.engine.Search(posCopy, limits)
-		h.printf("bestmove %s\n", bestMove)
+		if h.options.Ponder && h.ponderMove != board.NullMove {
+			h.printf("bestmove %s ponder %s\n", bestMove, h.ponderMove)
+		} else {
+			h.printf("bestmove %s\n", bestMove)
+		}
 		close(done)
 	}()
 }
@@ -290,6 +303,10 @@ func (h *Handler) cmdStop() {
 		<-h.searchDone
 		h.searchDone = nil
 	}
+}
+
+func (h *Handler) cmdPonderHit() {
+	h.engine.PonderHit()
 }
 
 func (h *Handler) cmdSetOption(tokens []string) {
