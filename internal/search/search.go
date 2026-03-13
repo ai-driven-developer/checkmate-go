@@ -190,15 +190,15 @@ func (e *Engine) Stop() {
 // The time manager is re-initialized with the original limits (minus ponder flag)
 // so that soft/hard time limits apply from this point forward.
 func (e *Engine) PonderHit() {
-	if !e.pondering.Swap(false) {
-		return // not pondering
-	}
-	// pondering.Swap provides a happens-before relationship with the
-	// pondering.Store(true) in Search, so reading e.limits/e.color/
-	// e.moveOverhead here is safe (Search has finished writing them
-	// before storing pondering=true, and we observe pondering=true
-	// via the Swap).
+	e.pondering.Store(false)
+	// e.limits/e.color/e.moveOverhead are initialized before Search starts
+	// worker threads, and never mutated during a running search. PonderHit
+	// may arrive before the search goroutine marks pondering=true, so we
+	// key off the original limits.Ponder rather than the transient flag.
 	limits := e.limits
+	if !limits.Ponder {
+		return
+	}
 	limits.Ponder = false
 	e.tmMu.Lock()
 	e.tm.reinitForPonderHit(limits, e.color, e.moveOverhead)
@@ -209,7 +209,7 @@ func (e *Engine) PonderHit() {
 // setHardDeadline stores the hard time limit as an atomic unix-nano deadline.
 // A value of 0 means no deadline (ponder, infinite, or depth-limited search).
 func (e *Engine) setHardDeadline() {
-	if e.tm.maximumTime >= 24*time.Hour {
+	if !e.tm.hardLimit {
 		e.hardDeadline.Store(0)
 	} else {
 		e.hardDeadline.Store(e.tm.startTime.Add(e.tm.maximumTime).UnixNano())

@@ -16,6 +16,7 @@ type TimeManager struct {
 	optimumTime time.Duration
 	maximumTime time.Duration
 	startTime   time.Time
+	hardLimit   bool
 
 	// Stability tracking (main thread only).
 	bestMove       board.Move
@@ -32,12 +33,14 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 	if limits.Ponder {
 		tm.optimumTime = 24 * time.Hour
 		tm.maximumTime = 24 * time.Hour
+		tm.hardLimit = false
 		return
 	}
 
 	if limits.Infinite || limits.Depth > 0 {
 		tm.optimumTime = 24 * time.Hour
 		tm.maximumTime = 24 * time.Hour
+		tm.hardLimit = false
 		return
 	}
 
@@ -51,6 +54,12 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 // trigger false score-drop extensions.
 func (tm *TimeManager) reinitForPonderHit(limits SearchLimits, color board.Color, overhead time.Duration) {
 	tm.startTime = time.Now()
+	if limits.Infinite || limits.Depth > 0 {
+		tm.optimumTime = 24 * time.Hour
+		tm.maximumTime = 24 * time.Hour
+		tm.hardLimit = false
+		return
+	}
 	tm.calcTimeLimits(limits, color, overhead)
 }
 
@@ -63,6 +72,7 @@ func (tm *TimeManager) calcTimeLimits(limits SearchLimits, color board.Color, ov
 		}
 		tm.optimumTime = t
 		tm.maximumTime = t
+		tm.hardLimit = true
 		return
 	}
 
@@ -130,6 +140,7 @@ func (tm *TimeManager) calcTimeLimits(limits SearchLimits, color board.Color, ov
 
 	tm.optimumTime = optimum
 	tm.maximumTime = maximum
+	tm.hardLimit = true
 }
 
 // elapsed returns the time spent since the search started.

@@ -364,3 +364,35 @@ func TestPonderMultiThread(t *testing.T) {
 		t.Error("multi-threaded ponder did not complete after ponderhit")
 	}
 }
+
+func TestPonderHitHonorsPendingPonderState(t *testing.T) {
+	// ponderhit may arrive before Search flips pondering=true; it should
+	// still transition from ponder limits to normal timed limits.
+	e := NewEngine()
+	e.limits = SearchLimits{Ponder: true, WTime: 80 * time.Millisecond}
+	e.color = board.White
+	e.pondering.Store(false)
+
+	e.PonderHit()
+
+	if got := e.tm.optimumTime; got >= 24*time.Hour {
+		t.Fatalf("optimumTime = %v, want finite timed limit", got)
+	}
+	if e.IsPondering() {
+		t.Fatal("engine should not be pondering after ponderhit")
+	}
+}
+
+func TestSetHardDeadlineKeepsLongFiniteMoveTime(t *testing.T) {
+	// A real movetime >= 24h is still finite and must retain hard deadline.
+	e := NewEngine()
+	e.tm.init(SearchLimits{MoveTime: 24 * time.Hour}, board.White, 0)
+	e.setHardDeadline()
+
+	if !e.tm.hardLimit {
+		t.Fatal("expected hardLimit=true for finite movetime")
+	}
+	if got := e.hardDeadline.Load(); got == 0 {
+		t.Fatal("hardDeadline should be set for finite 24h movetime")
+	}
+}

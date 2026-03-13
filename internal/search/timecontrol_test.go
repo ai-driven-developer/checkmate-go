@@ -511,6 +511,46 @@ func TestTimeManagerPonderHitReinitializes(t *testing.T) {
 	}
 }
 
+func TestTimeManagerPonderHitKeepsInfiniteLimits(t *testing.T) {
+	// Ponderhit on go ponder infinite must remain effectively infinite.
+	e := NewEngine()
+	e.pondering.Store(true)
+	e.limits = SearchLimits{Ponder: true, Infinite: true}
+	e.color = board.White
+
+	e.PonderHit()
+
+	if e.tm.optimumTime != 24*time.Hour {
+		t.Errorf("after ponderhit(infinite) optimumTime = %v, want 24h", e.tm.optimumTime)
+	}
+	if e.tm.maximumTime != 24*time.Hour {
+		t.Errorf("after ponderhit(infinite) maximumTime = %v, want 24h", e.tm.maximumTime)
+	}
+	if e.tm.hardLimit {
+		t.Error("after ponderhit(infinite) hardLimit should be false")
+	}
+}
+
+func TestTimeManagerPonderHitKeepsDepthLimits(t *testing.T) {
+	// Ponderhit on go ponder depth N must remain depth-limited, not clock-limited.
+	e := NewEngine()
+	e.pondering.Store(true)
+	e.limits = SearchLimits{Ponder: true, Depth: 6}
+	e.color = board.White
+
+	e.PonderHit()
+
+	if e.tm.optimumTime != 24*time.Hour {
+		t.Errorf("after ponderhit(depth) optimumTime = %v, want 24h", e.tm.optimumTime)
+	}
+	if e.tm.maximumTime != 24*time.Hour {
+		t.Errorf("after ponderhit(depth) maximumTime = %v, want 24h", e.tm.maximumTime)
+	}
+	if e.tm.hardLimit {
+		t.Error("after ponderhit(depth) hardLimit should be false")
+	}
+}
+
 func TestTimeManagerPonderShouldNotStopHard(t *testing.T) {
 	// During ponder, shouldStopHard should return false even past time.
 	var tm TimeManager
