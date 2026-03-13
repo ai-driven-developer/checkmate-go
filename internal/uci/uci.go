@@ -25,13 +25,17 @@ const (
 
 // Handler manages the UCI protocol.
 type Handler struct {
-	mu         sync.Mutex
-	pos        *board.Position
-	engine     *search.Engine
-	options    Options
-	input      io.Reader
-	output     io.Writer
-	searchDone chan struct{}
+	mu               sync.Mutex
+	pos              *board.Position
+	engine           *search.Engine
+	options          Options
+	input            io.Reader
+	output           io.Writer
+	searchDone       chan struct{}
+	pondering        bool
+	ponderLimits     search.SearchLimits
+	ponderStart      time.Time
+	suppressBestMove bool
 }
 
 // NewHandler creates a UCI handler with default settings.
@@ -131,6 +135,8 @@ func (h *Handler) ProcessCommand(line string) bool {
 		h.cmdGo(tokens[1:])
 	case "stop":
 		h.cmdStop()
+	case "ponderhit":
+		h.cmdPonderHit()
 	case "quit":
 		h.cmdStop()
 		return true
@@ -210,6 +216,7 @@ func (h *Handler) cmdPosition(tokens []string) {
 func (h *Handler) cmdGo(tokens []string) {
 	h.cmdStop()
 	limits := search.SearchLimits{}
+	isPonder := false
 	for i := 0; i < len(tokens); i++ {
 		switch tokens[i] {
 		case "depth":
@@ -259,6 +266,8 @@ func (h *Handler) cmdGo(tokens []string) {
 			}
 		case "infinite":
 			limits.Infinite = true
+		case "ponder":
+			isPonder = true
 		case "perft":
 			if i+1 < len(tokens) {
 				depth, _ := strconv.Atoi(tokens[i+1])
@@ -268,6 +277,21 @@ func (h *Handler) cmdGo(tokens []string) {
 		}
 	}
 
+	if isPonder {
+		h.pondering = true
+		h.ponderLimits = limits
+		h.ponderStart = time.Now()
+		limits.Infinite = true
+		limits.MoveTime = 0
+		limits.Depth = 0
+	} else {
+		h.pondering = false
+	}
+
+	h.startSearch(limits)
+}
+
+func (h *Handler) startSearch(limits search.SearchLimits) {
 	// Set up info callback.
 	h.engine.SetInfoCallback(func(info search.SearchInfo) {
 		h.printInfo(info)
@@ -279,12 +303,55 @@ func (h *Handler) cmdGo(tokens []string) {
 	go func() {
 		posCopy := h.pos.Copy()
 		bestMove := h.engine.Search(posCopy, limits)
-		h.printf("bestmove %s\n", bestMove)
+		h.mu.Lock()
+		suppress := h.suppressBestMove
+		h.suppressBestMove = false
+		h.mu.Unlock()
+		if !suppress {
+			h.printf("bestmove %s\n", bestMove)
+		}
 		close(done)
 	}()
 }
 
+func (h *Handler) cmdPonderHit() {
+	if !h.pondering {
+		return
+	}
+
+	elapsed := time.Since(h.ponderStart)
+	limits := h.ponderLimits
+	h.pondering = false
+
+	h.mu.Lock()
+	h.suppressBestMove = true
+	h.mu.Unlock()
+	h.cmdStop()
+
+	if limits.MoveTime > 0 {
+		limits.MoveTime -= elapsed
+		if limits.MoveTime < time.Millisecond {
+			limits.MoveTime = time.Millisecond
+		}
+	}
+	if h.pos.SideToMove == board.White && limits.WTime > 0 {
+		limits.WTime -= elapsed
+		if limits.WTime < time.Millisecond {
+			limits.WTime = time.Millisecond
+		}
+	}
+	if h.pos.SideToMove == board.Black && limits.BTime > 0 {
+		limits.BTime -= elapsed
+		if limits.BTime < time.Millisecond {
+			limits.BTime = time.Millisecond
+		}
+	}
+
+	h.startSearch(limits)
+}
+
 func (h *Handler) cmdStop() {
+	h.pondering = false
 	h.engine.Stop()
 	if h.searchDone != nil {
 		<-h.searchDone

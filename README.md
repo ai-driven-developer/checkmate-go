@@ -16,7 +16,7 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **NNUE evaluation:** efficiently updatable neural network (768→256)×2→32→1 with int16/int8 quantized weights, incremental accumulator updates on make/unmake, per-worker accumulator stacks, ClippedReLU activations; supports all move types (quiet, captures, en passant, castling, promotions); toggled via `UseNNUE` UCI option with HCE fallback
 - **Hand-crafted evaluation (HCE):** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), knight outposts (pawn-supported, unassailable), rook bonuses (open/semi-open files, 7th rank), passed pawn bonus with king-passer distance (friendly king proximity, enemy king distance), pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure), per-worker pawn hash table for caching pawn evaluation
 - **Time management:** adaptive soft/hard time limits with move stability detection, score-drop extension, and time-aware move allocation (bullet-optimized); supports classical, increment, and fixed move time controls
-- **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
+- **UCI protocol:** full implementation including `position`, `go`/`go ponder`, `ponderhit`, `stop`, `setoption`, `perft`, and more
 
 ## Lichess Rating
 
@@ -82,6 +82,7 @@ id name CheckmateGo 1.5.0
 id author ai-driven-developer
 option name Hash type spin default 64 min 1 max 4096
 option name Threads type spin default 1 min 1 max 128
+option name Ponder type check default false
 option name Move Overhead type spin default 10 min 0 max 5000
 option name SyzygyPath type string default
 option name UCI_ShowWDL type check default false
@@ -107,6 +108,7 @@ quit
 |---|---|---|---|---|
 | Hash | spin | 64 | 1 -- 4096 | Hash table size in MB |
 | Threads | spin | 1 | 1 -- 128 | Number of search threads (Lazy SMP) |
+| Ponder | check | false | -- | Enable pondering support flag (accepted and reported via UCI) |
 | Move Overhead | spin | 10 | 0 -- 5000 | Time reserved for communication overhead (ms) |
 | SyzygyPath | string | *(empty)* | -- | Path to Syzygy endgame tablebases (not yet implemented) |
 | UCI_ShowWDL | check | false | -- | Show Win/Draw/Loss probabilities in search info |
@@ -126,7 +128,7 @@ The test suite includes 350+ tests covering:
 - **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, knight outposts (protected, unsupported, attackable, rank filtering, symmetry), rook evaluation (open file, semi-open file, closed file, 7th rank, symmetry), king-passer distance (friendly king close, enemy king far, symmetry, endgame-only), passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
 - **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, ProbCut (node reduction, tactics safety, mate safety, depth gating), razoring (node reduction, tactics safety, mate safety, depth gating), IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **nnue:** feature index computation (bounds, symmetry, uniqueness, friendly/enemy), network loading (roundtrip, bad magic/version, truncated), forward pass (determinism, perspective, zero network, ClippedReLU bounds), accumulator refresh (starting position, idempotent, FEN), incremental updates for all move types (quiet, capture, en passant, kingside/queenside castling, promotion, promotion-capture, underpromotion), make/unmake consistency, null move handling, full game sequences (Italian Game, 40-ply stress test), stack operations
-- **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL, UseNNUE, EvalFile), time control modes, move parsing with promotions and castling, WDL output
+- **uci:** all protocol commands, option parsing (Hash, Threads, Ponder, Move Overhead, SyzygyPath, UCI_ShowWDL, UseNNUE, EvalFile), time control modes (including ponder/ponderhit flow), move parsing with promotions and castling, WDL output
 
 ## Benchmarks
 
