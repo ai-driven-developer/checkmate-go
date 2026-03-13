@@ -4,6 +4,7 @@ import (
 	"checkmatego/internal/board"
 	"checkmatego/internal/movegen"
 	"testing"
+	"time"
 )
 
 func TestMateInOne(t *testing.T) {
@@ -153,5 +154,213 @@ func TestSearchMateScore(t *testing.T) {
 
 	if mateScore < MateScore-10 {
 		t.Errorf("expected mate score, got %d", mateScore)
+	}
+}
+
+// --- Ponder tests ---
+
+func TestPonderSearchRunsIndefinitely(t *testing.T) {
+	// In ponder mode with time control, the engine should NOT stop by
+	// time management alone — only by explicit Stop().
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	done := make(chan board.Move, 1)
+	go func() {
+		m := e.Search(pos, SearchLimits{
+			Ponder: true,
+			WTime:  50 * time.Millisecond,
+		})
+		done <- m
+	}()
+
+	// Wait longer than the time control would allow.
+	time.Sleep(200 * time.Millisecond)
+
+	// Search should still be running (channel empty).
+	select {
+	case <-done:
+		t.Error("ponder search stopped on its own despite ponder mode")
+	default:
+		// Good — still running.
+	}
+
+	e.Stop()
+	m := <-done
+	if m == board.NullMove {
+		t.Error("ponder search returned null move")
+	}
+}
+
+func TestPonderHitTransitionsToNormalSearch(t *testing.T) {
+	// Start a ponder search with a short time control. After PonderHit,
+	// the engine should eventually stop on its own via time management.
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	done := make(chan board.Move, 1)
+	go func() {
+		m := e.Search(pos, SearchLimits{
+			Ponder: true,
+			WTime:  100 * time.Millisecond,
+		})
+		done <- m
+	}()
+
+	// Let it ponder briefly, then hit ponderhit.
+	time.Sleep(50 * time.Millisecond)
+	e.PonderHit()
+
+	// After ponderhit, the engine should stop within the time control.
+	select {
+	case m := <-done:
+		if m == board.NullMove {
+			t.Error("search after ponderhit returned null move")
+		}
+	case <-time.After(2 * time.Second):
+		e.Stop()
+		t.Error("search did not complete after ponderhit within timeout")
+	}
+}
+
+func TestIsPonderingState(t *testing.T) {
+	e := NewEngine()
+
+	if e.IsPondering() {
+		t.Error("new engine should not be pondering")
+	}
+
+	pos := board.NewPosition()
+	done := make(chan struct{})
+	go func() {
+		e.Search(pos, SearchLimits{Ponder: true, Depth: 100})
+		close(done)
+	}()
+
+	// Give search time to start.
+	time.Sleep(20 * time.Millisecond)
+	if !e.IsPondering() {
+		t.Error("engine should be pondering during ponder search")
+	}
+
+	e.PonderHit()
+	if e.IsPondering() {
+		t.Error("engine should not be pondering after PonderHit")
+	}
+
+	e.Stop()
+	<-done
+}
+
+func TestPonderHitReturnsValidMove(t *testing.T) {
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	done := make(chan board.Move, 1)
+	go func() {
+		m := e.Search(pos, SearchLimits{
+			Ponder: true,
+			WTime:  200 * time.Millisecond,
+			WInc:   50 * time.Millisecond,
+		})
+		done <- m
+	}()
+
+	time.Sleep(30 * time.Millisecond)
+	e.PonderHit()
+
+	select {
+	case m := <-done:
+		if m == board.NullMove {
+			t.Error("search returned null move after ponderhit")
+		}
+		s := m.String()
+		if len(s) < 4 || len(s) > 5 {
+			t.Errorf("invalid move string after ponderhit: %s", s)
+		}
+	case <-time.After(2 * time.Second):
+		e.Stop()
+		t.Error("search did not finish after ponderhit")
+	}
+}
+
+func TestPonderStopReturnsMove(t *testing.T) {
+	// When the GUI sends "stop" during ponder (opponent played a different
+	// move), the engine should return the best move found so far.
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	done := make(chan board.Move, 1)
+	go func() {
+		m := e.Search(pos, SearchLimits{Ponder: true, WTime: 10 * time.Second})
+		done <- m
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	e.Stop()
+
+	select {
+	case m := <-done:
+		if m == board.NullMove {
+			t.Error("stopped ponder search returned null move")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("ponder search did not stop after Stop()")
+	}
+}
+
+func TestPonderWithDepthLimit(t *testing.T) {
+	// Ponder with a depth limit should still complete at that depth
+	// (depth limit takes precedence).
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	var lastDepth int
+	e.SetInfoCallback(func(info SearchInfo) {
+		lastDepth = info.Depth
+	})
+
+	m := e.Search(pos, SearchLimits{Ponder: true, Depth: 3})
+	if m == board.NullMove {
+		t.Error("ponder with depth limit returned null move")
+	}
+	if lastDepth != 3 {
+		t.Errorf("expected depth 3, got %d", lastDepth)
+	}
+}
+
+func TestPonderWithNodeLimit(t *testing.T) {
+	// Node limit should still work during ponder.
+	e := NewEngine()
+	pos := board.NewPosition()
+
+	m := e.Search(pos, SearchLimits{Ponder: true, Nodes: 500})
+	if m == board.NullMove {
+		t.Error("ponder with node limit returned null move")
+	}
+}
+
+func TestPonderMultiThread(t *testing.T) {
+	e := NewEngine()
+	e.SetThreads(2)
+	pos := board.NewPosition()
+
+	done := make(chan board.Move, 1)
+	go func() {
+		m := e.Search(pos, SearchLimits{Ponder: true, WTime: 100 * time.Millisecond})
+		done <- m
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	e.PonderHit()
+
+	select {
+	case m := <-done:
+		if m == board.NullMove {
+			t.Error("multi-threaded ponder returned null move")
+		}
+	case <-time.After(2 * time.Second):
+		e.Stop()
+		t.Error("multi-threaded ponder did not complete after ponderhit")
 	}
 }

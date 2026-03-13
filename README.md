@@ -15,8 +15,9 @@ A UCI-compatible chess engine written in Go from scratch, with no external depen
 - **Draw detection:** repetition detection (2-fold) and 50-move rule
 - **NNUE evaluation:** efficiently updatable neural network (768→256)×2→32→1 with int16/int8 quantized weights, incremental accumulator updates on make/unmake, per-worker accumulator stacks, ClippedReLU activations; supports all move types (quiet, captures, en passant, castling, promotions); toggled via `UseNNUE` UCI option with HCE fallback
 - **Hand-crafted evaluation (HCE):** tapered evaluation (middlegame/endgame interpolation), material balance, bishop pair bonus, piece-square tables, mobility (knight/bishop/rook/queen), knight outposts (pawn-supported, unassailable), rook bonuses (open/semi-open files, 7th rank), passed pawn bonus with king-passer distance (friendly king proximity, enemy king distance), pawn structure (doubled/isolated/backward pawn penalties), king safety (pawn shield, open file penalty, king zone attacker pressure), per-worker pawn hash table for caching pawn evaluation
+- **Ponder:** thinks on the opponent's time; the engine predicts the opponent's reply and searches ahead, transitioning seamlessly to normal search on `ponderhit`; toggled via `Ponder` option
 - **Time management:** adaptive soft/hard time limits with move stability detection, score-drop extension, and time-aware move allocation (bullet-optimized); supports classical, increment, and fixed move time controls
-- **UCI protocol:** full implementation including `position`, `go`, `stop`, `setoption`, `perft`, and more
+- **UCI protocol:** full implementation including `position`, `go`, `stop`, `ponderhit`, `setoption`, `perft`, and more
 
 ## Lichess Rating
 
@@ -84,6 +85,7 @@ option name Hash type spin default 64 min 1 max 4096
 option name Threads type spin default 1 min 1 max 128
 option name Move Overhead type spin default 10 min 0 max 5000
 option name SyzygyPath type string default
+option name Ponder type check default false
 option name UCI_ShowWDL type check default false
 option name UseNNUE type check default true
 option name EvalFile type string default <embedded>
@@ -109,6 +111,7 @@ quit
 | Threads | spin | 1 | 1 -- 128 | Number of search threads (Lazy SMP) |
 | Move Overhead | spin | 10 | 0 -- 5000 | Time reserved for communication overhead (ms) |
 | SyzygyPath | string | *(empty)* | -- | Path to Syzygy endgame tablebases (not yet implemented) |
+| Ponder | check | false | -- | Enable pondering (thinking on opponent's time) |
 | UCI_ShowWDL | check | false | -- | Show Win/Draw/Loss probabilities in search info |
 | UseNNUE | check | true | -- | Use NNUE evaluation (false = hand-crafted evaluation) |
 | EvalFile | string | `<embedded>` | -- | Path to NNUE network file (`.nnue`); `<embedded>` uses the built-in network (requires `build-nnue`) |
@@ -124,9 +127,9 @@ The test suite includes 350+ tests covering:
 - **board:** bitboard operations, FEN parsing, move encoding, Zobrist hashing, pawn hash incremental consistency, incremental PST consistency (quiet moves, captures, castling, promotions, en passant)
 - **movegen:** legal move generation, capture generation, magic bitboards, perft validation (starting position through depth 5, Kiwi Pete, and other standard positions)
 - **eval:** evaluation symmetry, material balance, piece-square tables, tapered evaluation, game phase, king endgame centralization, knight outposts (protected, unsupported, attackable, rank filtering, symmetry), rook evaluation (open file, semi-open file, closed file, 7th rank, symmetry), king-passer distance (friendly king close, enemy king far, symmetry, endgame-only), passed pawn detection and scoring, pawn structure (doubled, isolated, backward pawns), king safety (pawn shield, open files, attacker pressure), pawn cache (probe/store, overwrite, cache-vs-no-cache consistency, hit verification), incremental PST vs from-scratch consistency
-- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, ProbCut (node reduction, tactics safety, mate safety, depth gating), razoring (node reduction, tactics safety, mate safety, depth gating), IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
+- **search:** mate-in-1, mate-in-2, stalemate avoidance, capture detection, move ordering, history heuristic (gravity), killer moves, countermove heuristic, continuation history (update/lookup, malus, gravity bounds, null-move safety, independent entries, move scoring integration, LMR integration), 50-move rule, null-move pruning, ProbCut (node reduction, tactics safety, mate safety, depth gating), razoring (node reduction, tactics safety, mate safety, depth gating), IIR, reverse futility pruning, futility pruning, late move pruning, SEE pruning in main search (quiet moves, captures, promotion safety, mate safety), delta pruning, improving heuristic, aspiration windows, PVS, check extensions, history-aware LMR, multi-threaded search, repetition avoidance, transposition table, node limit, ponder (indefinite search, ponderhit transition, stop during ponder, depth/node limits, multi-threaded), time management (soft/hard limits, move stability, score-drop extension, adaptive allocation, classical/increment/movetime, ponder mode), SEE (undefended captures, defended captures, equal exchanges, complex exchanges, x-ray discovery, en passant, promotions)
 - **nnue:** feature index computation (bounds, symmetry, uniqueness, friendly/enemy), network loading (roundtrip, bad magic/version, truncated), forward pass (determinism, perspective, zero network, ClippedReLU bounds), accumulator refresh (starting position, idempotent, FEN), incremental updates for all move types (quiet, capture, en passant, kingside/queenside castling, promotion, promotion-capture, underpromotion), make/unmake consistency, null move handling, full game sequences (Italian Game, 40-ply stress test), stack operations
-- **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, UCI_ShowWDL, UseNNUE, EvalFile), time control modes, move parsing with promotions and castling, WDL output
+- **uci:** all protocol commands, option parsing (Hash, Threads, Move Overhead, SyzygyPath, Ponder, UCI_ShowWDL, UseNNUE, EvalFile), time control modes, move parsing with promotions and castling, WDL output, ponder (go ponder, ponderhit, bestmove with ponder move, full game sequence)
 
 ## Benchmarks
 
@@ -153,6 +156,6 @@ internal/
   movegen/             Legal move generation, magic bitboards, perft
   eval/                HCE: tapered evaluation (material + PST + mobility + outposts + rooks + passed pawns + king-passer distance + pawn structure + king safety), per-worker pawn hash table
   nnue/                NNUE: network loading, forward pass, incremental accumulator, feature indexing
-  search/              PVS, quiescence, TT, move ordering, SEE, SEE pruning (main search), killer moves, countermove heuristic, history heuristic (gravity), continuation history (1-ply/2-ply), LMR (history-aware), null-move pruning, ProbCut, IIR, reverse futility pruning, razoring, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, Lazy SMP
+  search/              PVS, quiescence, TT, move ordering, SEE, SEE pruning (main search), killer moves, countermove heuristic, history heuristic (gravity), continuation history (1-ply/2-ply), LMR (history-aware), null-move pruning, ProbCut, IIR, reverse futility pruning, razoring, futility pruning, late move pruning, delta pruning, improving heuristic, check extensions, aspiration windows, time control, ponder, Lazy SMP
   uci/                 UCI protocol handler and engine options
 ```

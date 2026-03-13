@@ -160,9 +160,14 @@ func (w *worker) search(maxDepth int) workerResult {
 			break
 		}
 		// Main thread: check soft time limit with stability/score-drop adjustments.
-		if w.id == 0 && !w.engine.limits.Infinite && w.engine.limits.Depth == 0 &&
-			result.move != board.NullMove {
-			if w.engine.tm.shouldStopSoft(result.move, score, depth) {
+		// Skip during ponder mode — the engine searches indefinitely until
+		// ponderhit or stop.
+		if w.id == 0 && !w.engine.limits.Infinite && !w.engine.pondering.Load() &&
+			w.engine.limits.Depth == 0 && result.move != board.NullMove {
+			w.engine.tmMu.Lock()
+			softStop := w.engine.tm.shouldStopSoft(result.move, score, depth)
+			w.engine.tmMu.Unlock()
+			if softStop {
 				w.engine.stopFlag.Store(true)
 				break
 			}
@@ -178,8 +183,8 @@ func (w *worker) shouldStop() bool {
 	if w.engine.limits.Nodes > 0 && w.engine.nodes.Load() >= w.engine.limits.Nodes {
 		return true
 	}
-	if !w.engine.limits.Infinite && w.engine.limits.Depth == 0 {
-		return w.engine.tm.shouldStopHard()
+	if deadline := w.engine.hardDeadline.Load(); deadline > 0 && time.Now().UnixNano() >= deadline {
+		return true
 	}
 	return false
 }

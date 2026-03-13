@@ -456,3 +456,72 @@ func TestTimeManagerClassicalSearch(t *testing.T) {
 		t.Errorf("classical search took %v, exceeded remaining time", elapsed)
 	}
 }
+
+// --- Ponder time management tests ---
+
+func TestTimeManagerPonderMode(t *testing.T) {
+	// In ponder mode, time manager should set infinite-like limits.
+	var tm TimeManager
+	tm.init(SearchLimits{
+		Ponder: true,
+		WTime:  10 * time.Second,
+		WInc:   1 * time.Second,
+	}, board.White, 0)
+
+	if tm.optimumTime != 24*time.Hour {
+		t.Errorf("ponder optimumTime = %v, want 24h", tm.optimumTime)
+	}
+	if tm.maximumTime != 24*time.Hour {
+		t.Errorf("ponder maximumTime = %v, want 24h", tm.maximumTime)
+	}
+}
+
+func TestTimeManagerPonderWithMoveTime(t *testing.T) {
+	// Even with movetime specified, ponder mode overrides to infinite.
+	var tm TimeManager
+	tm.init(SearchLimits{
+		Ponder:   true,
+		MoveTime: 500 * time.Millisecond,
+	}, board.White, 0)
+
+	if tm.optimumTime != 24*time.Hour {
+		t.Errorf("ponder+movetime optimumTime = %v, want 24h", tm.optimumTime)
+	}
+}
+
+func TestTimeManagerPonderHitReinitializes(t *testing.T) {
+	// After PonderHit, the time manager should use real time control.
+	e := NewEngine()
+	e.pondering.Store(true)
+	e.limits = SearchLimits{
+		Ponder: true,
+		WTime:  60 * time.Second,
+		WInc:   2 * time.Second,
+	}
+	e.color = board.White
+
+	e.PonderHit()
+
+	// After ponderhit, time should be calculated normally.
+	if e.tm.optimumTime >= 24*time.Hour {
+		t.Errorf("after ponderhit optimumTime = %v, should not be infinite", e.tm.optimumTime)
+	}
+	if e.tm.optimumTime < 1*time.Second || e.tm.optimumTime > 10*time.Second {
+		t.Errorf("after ponderhit optimumTime = %v, out of expected range", e.tm.optimumTime)
+	}
+}
+
+func TestTimeManagerPonderShouldNotStopHard(t *testing.T) {
+	// During ponder, shouldStopHard should return false even past time.
+	var tm TimeManager
+	tm.init(SearchLimits{
+		Ponder: true,
+		WTime:  10 * time.Millisecond,
+	}, board.White, 0)
+
+	// With ponder, limits are set to 24h, so hard stop won't trigger.
+	time.Sleep(20 * time.Millisecond)
+	if tm.shouldStopHard() {
+		t.Error("shouldStopHard should return false during ponder")
+	}
+}

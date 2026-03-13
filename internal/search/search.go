@@ -44,6 +44,7 @@ type SearchLimits struct {
 	Nodes     uint64
 	MoveTime  time.Duration
 	Infinite  bool
+	Ponder    bool
 	WTime     time.Duration
 	BTime     time.Duration
 	WInc      time.Duration
@@ -71,6 +72,9 @@ type Engine struct {
 	onInfo       InfoCallback
 	nodes        atomic.Uint64
 	stopFlag     atomic.Bool
+	pondering    atomic.Bool
+	hardDeadline atomic.Int64 // unix nanos; 0 = no hard deadline (lock-free time check)
+	tmMu         sync.Mutex   // protects tm for shouldStopSoft (infrequent, thread-0 only)
 	tm           TimeManager
 	start        time.Time
 	moveOverhead time.Duration
@@ -125,8 +129,12 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 	e.limits = limits
 	e.nodes.Store(0)
 	e.stopFlag.Store(false)
+	e.pondering.Store(limits.Ponder)
+	e.tmMu.Lock()
 	e.tm.init(limits, pos.SideToMove, e.moveOverhead)
 	e.start = e.tm.startTime
+	e.setHardDeadline()
+	e.tmMu.Unlock()
 	e.tt.NewSearch()
 
 	maxDepth := MaxDepth
@@ -176,4 +184,39 @@ func (e *Engine) Search(pos *board.Position, limits SearchLimits) board.Move {
 // Stop signals the engine to stop searching.
 func (e *Engine) Stop() {
 	e.stopFlag.Store(true)
+}
+
+// PonderHit transitions the engine from ponder mode to normal search.
+// The time manager is re-initialized with the original limits (minus ponder flag)
+// so that soft/hard time limits apply from this point forward.
+func (e *Engine) PonderHit() {
+	if !e.pondering.Swap(false) {
+		return // not pondering
+	}
+	// pondering.Swap provides a happens-before relationship with the
+	// pondering.Store(true) in Search, so reading e.limits/e.color/
+	// e.moveOverhead here is safe (Search has finished writing them
+	// before storing pondering=true, and we observe pondering=true
+	// via the Swap).
+	limits := e.limits
+	limits.Ponder = false
+	e.tmMu.Lock()
+	e.tm.reinitForPonderHit(limits, e.color, e.moveOverhead)
+	e.setHardDeadline()
+	e.tmMu.Unlock()
+}
+
+// setHardDeadline stores the hard time limit as an atomic unix-nano deadline.
+// A value of 0 means no deadline (ponder, infinite, or depth-limited search).
+func (e *Engine) setHardDeadline() {
+	if e.tm.maximumTime >= 24*time.Hour {
+		e.hardDeadline.Store(0)
+	} else {
+		e.hardDeadline.Store(e.tm.startTime.Add(e.tm.maximumTime).UnixNano())
+	}
+}
+
+// IsPondering returns true if the engine is currently in ponder mode.
+func (e *Engine) IsPondering() bool {
+	return e.pondering.Load()
 }
