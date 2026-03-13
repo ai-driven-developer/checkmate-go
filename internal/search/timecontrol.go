@@ -81,8 +81,9 @@ func (tm *TimeManager) init(limits SearchLimits, color board.Color, overhead tim
 		maximum = optimum * 5
 	}
 
-	// Safety: never exceed remaining minus overhead.
-	safeMax := remaining - overhead
+	// Safety: never exceed the remaining clock time after overhead.
+	// Note: overhead has already been subtracted from remaining above.
+	safeMax := remaining
 	if safeMax < 0 {
 		safeMax = 0
 	}

@@ -119,6 +119,15 @@ func TestTimeManagerWithOverhead(t *testing.T) {
 	}
 }
 
+func TestTimeManagerOverheadSubtractedOnce(t *testing.T) {
+	var tm TimeManager
+	tm.init(SearchLimits{WTime: 400 * time.Millisecond, WInc: time.Second}, board.White, 100*time.Millisecond)
+
+	if tm.maximumTime != 300*time.Millisecond {
+		t.Errorf("maximum = %v, want 300ms", tm.maximumTime)
+	}
+}
+
 func TestTimeManagerMaximumGTEOptimum(t *testing.T) {
 	// Maximum should always be >= optimum.
 	tests := []SearchLimits{
