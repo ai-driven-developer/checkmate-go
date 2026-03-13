@@ -30,6 +30,16 @@ func TestUCICommand(t *testing.T) {
 	}
 }
 
+func TestUCICommandIncludesPonderOption(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("uci")
+	out := buf.String()
+
+	if !strings.Contains(out, "option name Ponder type check default false") {
+		t.Error("uci response should contain Ponder option declaration")
+	}
+}
+
 func TestIsReadyCommand(t *testing.T) {
 	h, buf := newTestHandler()
 	h.ProcessCommand("isready")
@@ -180,6 +190,19 @@ func TestSetOptionMoveOverhead(t *testing.T) {
 	}
 }
 
+func TestSetOptionPonder(t *testing.T) {
+	h, _ := newTestHandler()
+	h.ProcessCommand("setoption name Ponder value true")
+	if !h.options.Ponder {
+		t.Error("expected Ponder=true")
+	}
+
+	h.ProcessCommand("setoption name Ponder value false")
+	if h.options.Ponder {
+		t.Error("expected Ponder=false")
+	}
+}
+
 func TestSetOptionSyzygyPath(t *testing.T) {
 	h, _ := newTestHandler()
 	h.ProcessCommand("setoption name SyzygyPath value /path/to/syzygy")
@@ -261,6 +284,47 @@ func TestGoMovesToGo(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "bestmove") {
 		t.Error("go with movestogo should produce bestmove")
+	}
+}
+
+func TestGoPonderWaitsForStopOrPonderHit(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go ponder depth 4")
+	time.Sleep(150 * time.Millisecond)
+
+	if strings.Contains(buf.String(), "bestmove") {
+		t.Fatal("go ponder should not immediately output bestmove before stop/ponderhit")
+	}
+
+	h.ProcessCommand("stop")
+}
+
+func TestPonderHitStartsRegularSearch(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go ponder depth 4")
+	time.Sleep(100 * time.Millisecond)
+	h.ProcessCommand("ponderhit")
+
+	time.Sleep(500 * time.Millisecond)
+	h.ProcessCommand("stop")
+
+	out := buf.String()
+	if count := strings.Count(out, "bestmove"); count != 1 {
+		t.Fatalf("expected exactly 1 bestmove after ponderhit transition, got %d\noutput:\n%s", count, out)
+	}
+}
+
+func TestPonderHitWithoutPonderIsNoop(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go depth 2")
+	h.ProcessCommand("ponderhit")
+	h.ProcessCommand("stop")
+
+	if !strings.Contains(buf.String(), "bestmove") {
+		t.Error("regular search should still produce bestmove when ponderhit is sent outside ponder mode")
 	}
 }
 

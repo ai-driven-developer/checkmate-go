@@ -20,6 +20,7 @@ type Options struct {
 	Hash         int
 	MoveOverhead int // milliseconds reserved for communication overhead
 	Threads      int
+	Ponder       bool
 	SyzygyPath   string
 	ShowWDL      bool
 	UseNNUE      bool
@@ -39,6 +40,7 @@ func DefaultOptions() Options {
 func (o *Options) PrintOptions(printf func(format string, a ...interface{})) {
 	printf("option name Hash type spin default %d min 1 max 4096\n", o.Hash)
 	printf("option name Threads type spin default %d min 1 max 128\n", o.Threads)
+	printf("option name Ponder type check default false\n")
 	printf("option name Move Overhead type spin default %d min 0 max 5000\n", o.MoveOverhead)
 	printf("option name SyzygyPath type string default %s\n", o.SyzygyPath)
 	printf("option name UCI_ShowWDL type check default false\n")
@@ -71,6 +73,8 @@ func (o *Options) SetOption(name, value string) error {
 			return fmt.Errorf("Threads value out of range: %d", v)
 		}
 		o.Threads = v
+	case "ponder":
+		o.Ponder = strings.ToLower(value) == "true"
 	case "syzygypath":
 		o.SyzygyPath = value
 	case "uci_showwdl":
