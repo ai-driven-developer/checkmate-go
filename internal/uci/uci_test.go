@@ -423,3 +423,71 @@ func TestEmptyCommand(t *testing.T) {
 		t.Error("empty command should not quit")
 	}
 }
+
+func TestRunSkipsEmptyLinesAndStopsOnQuit(t *testing.T) {
+	input := strings.NewReader("\n\n isready \n\n quit\n isready\n")
+	var buf bytes.Buffer
+	h := NewHandlerWithIO(input, &buf)
+
+	h.Run()
+	out := buf.String()
+	if !strings.Contains(out, "readyok") {
+		t.Fatal("expected readyok response before quit")
+	}
+	if strings.Count(out, "readyok") != 1 {
+		t.Fatalf("expected exactly one readyok before quit, got output: %q", out)
+	}
+}
+
+func TestPerftCommandDepthOne(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("perft 1")
+
+	out := buf.String()
+	if !strings.Contains(out, "Total: 20 nodes") {
+		t.Fatalf("expected perft depth 1 total of 20 nodes, got output: %q", out)
+	}
+}
+
+func TestGoPerftCommandDepthOne(t *testing.T) {
+	h, buf := newTestHandler()
+	h.ProcessCommand("position startpos")
+	h.ProcessCommand("go perft 1")
+
+	out := buf.String()
+	if !strings.Contains(out, "Total: 20 nodes") {
+		t.Fatalf("expected go perft depth 1 total of 20 nodes, got output: %q", out)
+	}
+	if strings.Contains(out, "bestmove") {
+		t.Fatalf("go perft should not start search or print bestmove, got output: %q", out)
+	}
+}
+
+func TestOptionsSetOptionUseNNUEAndEvalFile(t *testing.T) {
+	opts := DefaultOptions()
+	if err := opts.SetOption("UseNNUE", "false"); err != nil {
+		t.Fatalf("unexpected error disabling UseNNUE: %v", err)
+	}
+	if opts.UseNNUE {
+		t.Fatal("expected UseNNUE=false after setoption")
+	}
+
+	if err := opts.SetOption("EvalFile", "/tmp/net.nnue"); err != nil {
+		t.Fatalf("unexpected error setting EvalFile: %v", err)
+	}
+	if opts.EvalFile != "/tmp/net.nnue" {
+		t.Fatalf("unexpected EvalFile: got %q", opts.EvalFile)
+	}
+}
+
+func TestOptionsSetOptionMoveOverheadInvalidValue(t *testing.T) {
+	opts := DefaultOptions()
+	err := opts.SetOption("Move Overhead", "not-a-number")
+	if err == nil {
+		t.Fatal("expected parse error for invalid Move Overhead value")
+	}
+	if opts.MoveOverhead != 10 {
+		t.Fatalf("invalid value should not change MoveOverhead, got %d", opts.MoveOverhead)
+	}
+}
